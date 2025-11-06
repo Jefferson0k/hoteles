@@ -130,7 +130,7 @@ class ProductoController extends Controller{
                     ->whereHas('product', fn($q) => $q->where('is_active', true))
             )
             ->through([
-                FilterByNameOrCode::class,
+                FilterByName::class,
                 FilterByStock::class,
             ])
             ->thenReturn();

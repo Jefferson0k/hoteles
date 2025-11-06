@@ -46,4 +46,9 @@ class ProductPolicy
     {
         return $user->hasPermissionTo('force delete products');
     }
+
+    public function reportIngresoProducto(User $user)
+    {
+        return $user->hasPermissionTo('view report de ingreso producto');
+    }
 }

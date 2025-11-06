@@ -107,40 +107,40 @@
 
             <!-- Estadísticas -->
             <div>
-                <div class="flex items-center gap-2 mb-3">
-                    <i class="pi pi-info-circle"></i>
-                    <h3 class="text-base font-semibold">Estadísticas</h3>
-                </div>
-                <div class="space-y-2">
-                    <Message severity="info" class="!m-0">
-                        <div class="flex items-center justify-between w-full">
-                            <span class="text-sm">Producto Más Vendido</span>
-                            <span class="font-semibold text-sm">{{ estadisticas.producto_mas_vendido }}</span>
-                        </div>
-                    </Message>
-                <br>
-                    <Message severity="success" class="!m-0">
-                        <div class="flex items-center justify-between w-full">
-                            <span class="text-sm">Ingreso Promedio</span>
-                            <span class="font-semibold text-sm">S/ {{ formatoMoneda(estadisticas.promedio_por_producto) }}</span>
-                        </div>
-                    </Message>
-                <br>
-                    <Message severity="warn" class="!m-0">
-                        <div class="flex items-center justify-between w-full">
-                            <span class="text-sm">Día con Más Ventas</span>
-                            <span class="font-semibold text-sm">{{ estadisticas.dia_max_ventas }}</span>
-                        </div>
-                    </Message>
-                <br>
-                    <Message severity="secondary" class="!m-0">
-                        <div class="flex items-center justify-between w-full">
-                            <span class="text-sm">Tasa de Conversión</span>
-                            <span class="font-semibold text-sm">{{ estadisticas.tasa_conversion }}%</span>
-                        </div>
-                    </Message>
-                </div>
+    <div class="flex items-center gap-2 mb-3">
+        <i class="pi pi-info-circle"></i>
+        <h3 class="text-base font-semibold">Estadísticas</h3>
+    </div>
+    <div class="space-y-2">
+        <Message severity="info" class="!m-0">
+            <div class="flex items-center justify-between w-full gap-4">
+                <span class="text-sm">Producto Más Vendido</span>
+                <span class="font-semibold text-sm text-right">{{ estadisticas.producto_mas_vendido }}</span>
             </div>
+        </Message>
+        <br>
+        <Message severity="success" class="!m-0">
+            <div class="flex items-center justify-between w-full gap-4">
+                <span class="text-sm">Ingreso Promedio</span>
+                <span class="font-semibold text-sm text-right">S/ {{ formatoMoneda(estadisticas.promedio_por_producto) }}</span>
+            </div>
+        </Message>
+        <br>
+        <Message severity="warn" class="!m-0">
+            <div class="flex items-center justify-between w-full gap-4">
+                <span class="text-sm">Día con Más Ventas</span>
+                <span class="font-semibold text-sm text-right">{{ estadisticas.dia_max_ventas }}</span>
+            </div>
+        </Message>
+        <br>
+        <Message severity="secondary" class="!m-0">
+            <div class="flex items-center justify-between w-full gap-4">
+                <span class="text-sm">Tasa de Conversión</span>
+                <span class="font-semibold text-sm text-right">{{ estadisticas.tasa_conversion }}%</span>
+            </div>
+        </Message>
+    </div>
+</div>
         </div>
 
         <!-- TABLA DETALLADA DE CONSUMOS -->
@@ -156,7 +156,7 @@
                 paginator 
                 :rows="10"
                 :rowsPerPageOptions="[5, 10, 20, 50]"
-                size="small"
+                class="p-datatable-sm"
             >
                 <Column field="product.name" header="Producto" sortable>
                     <template #body="slotProps">
@@ -198,18 +198,6 @@
                             <i class="pi pi-calendar text-gray-400 text-xs"></i>
                             <span class="text-sm">{{ formatoFecha(slotProps.data.consumed_at) }}</span>
                         </div>
-                    </template>
-                </Column>
-                <Column header="Acciones">
-                    <template #body="slotProps">
-                        <Button 
-                            icon="pi pi-eye" 
-                            severity="secondary" 
-                            size="small"
-                            text
-                            @click="verDetalle(slotProps.data)"
-                            v-tooltip="'Ver detalles'"
-                        />
                     </template>
                 </Column>
             </DataTable>

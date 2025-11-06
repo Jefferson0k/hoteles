@@ -172,7 +172,7 @@ Route::middleware(['auth', 'verified','cash.register.open'])->group(function () 
         Route::get('/menos-vendidos', [ReportController::class, 'productosMenosVendidos']);
         Route::get('/menos-vendidos-grafica', [ReportController::class, 'productosMenosVendidosGrafica']);
         Route::get('/sin-ventas', [ReportController::class, 'productosSinVentas']);
-        Route::get('/comparativa-ventas', [ReportController::class, 'comparativaVentasSimple']); // Usar el método simple
+        Route::get('/comparativa-ventas', [ReportController::class, 'comparativaVentasSimple']);
         Route::get('/comparativa-ventas-grafica', [ReportController::class, 'comparativaVentasGrafica']);
         Route::get('/analisis-rendimiento', [ReportController::class, 'analisisRendimientoProductos']);
         Route::get('/bajo-rendimiento', [ReportController::class, 'productosBajoRendimiento']);
@@ -217,7 +217,6 @@ Route::middleware(['auth', 'verified','cash.register.open'])->group(function () 
     
     Route::get('currencies', [CurrencyController::class, 'index']);
 
-
     Route::prefix('bookings')->group(function () {
         Route::post('/', [BookingController::class, 'store']);
         Route::post('/{booking}/add-consumption', [BookingController::class, 'addConsumption']);
@@ -254,8 +253,6 @@ Route::middleware(['auth', 'verified','cash.register.open'])->group(function () 
         Route::get('/', [CashRegisterController::class, 'index'])->name('cash.cash-registers.index');
         Route::post('/multiple', [CashRegisterController::class, 'createMultiple'])->name('cash.cash-registers.multiple');
         Route::get('/{id}', [CashRegisterController::class, 'show'])->name('cash.cash-registers.show');
-
-        // ✅ Nueva ruta para aperturar caja
         Route::post('/{id}/open', [CashRegisterController::class, 'open'])->name('cash.cash-registers.open');
     });
 

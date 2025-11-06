@@ -76,14 +76,14 @@ const model = computed(() => [
     {
         label: 'Reportes',
         items: [
-            hasPermission('view ingresos de habitaciones reporte') && { label: 'Ingresos de Habitaciones', icon: 'pi pi-fw pi-home', to: '/panel/reportes/ingresos-habitaciones' },
-            hasPermission('view ingreso de producto reporte') && { label: 'Ingreso de Productos', icon: 'pi pi-fw pi-shopping-cart', to: '/panel/reportes/ingreso-productos' },
-            hasPermission('view ingreso bruto reporte') && { label: 'Ingreso Bruto', icon: 'pi pi-fw pi-chart-line', to: '/panel/reportes/ingreso-bruto' },
-            hasPermission('view egreso reporte') && { label: 'Egresos', icon: 'pi pi-fw pi-money-bill', to: '/panel/reportes/egresos' },
-            hasPermission('view ingreso neto reporte') && { label: 'Ingreso Neto', icon: 'pi pi-fw pi-chart-bar', to: '/panel/reportes/ingreso-neto' },
-            hasPermission('view numero de clientes reporte') && { label: 'Número de Clientes', icon: 'pi pi-fw pi-users', to: '/panel/reportes/numero-clientes' },
-            hasPermission('view producto mas vendidos reporte') && { label: 'Productos Más Vendidos', icon: 'pi pi-fw pi-star', to: '/panel/reportes/productos-mas-vendidos' },
-            hasPermission('view proudcto menos vendidos reporte') && { label: 'Productos Menos Vendidos', icon: 'pi pi-fw pi-chart-pie', to: '/panel/reportes/productos-menos-vendidos' },
+            ('view reportes ingresos') && { label: 'Ingresos de Habitaciones', icon: 'pi pi-fw pi-home', to: '/panel/reportes/ingresos-habitaciones' },
+            ('view report de ingreso producto') && { label: 'Ingreso de Productos', icon: 'pi pi-fw pi-shopping-cart', to: '/panel/reportes/ingreso-productos' },
+            { label: 'Ingreso Bruto', icon: 'pi pi-fw pi-chart-line', to: '/panel/reportes/ingreso-bruto' },
+            ('view egreso reporte') && { label: 'Egresos', icon: 'pi pi-fw pi-money-bill', to: '/panel/reportes/egresos' },
+            ('view ingreso neto reporte') && { label: 'Ingreso Neto', icon: 'pi pi-fw pi-chart-bar', to: '/panel/reportes/ingreso-neto' },
+            ('view numero de clientes reporte') && { label: 'Número de Clientes', icon: 'pi pi-fw pi-users', to: '/panel/reportes/numero-clientes' },
+            ('view producto mas vendidos reporte') && { label: 'Productos Más Vendidos', icon: 'pi pi-fw pi-star', to: '/panel/reportes/productos-mas-vendidos' },
+            ('view proudcto menos vendidos reporte') && { label: 'Productos Menos Vendidos', icon: 'pi pi-fw pi-chart-pie', to: '/panel/reportes/productos-menos-vendidos' },
         ].filter(Boolean),
     },
     {

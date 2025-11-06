@@ -51,7 +51,7 @@ class RoomController extends Controller{
             $room->load([
                 'floor.subBranch',
                 'roomType',
-                'currentBooking.guest',
+                'currentBooking.customer',
                 'statusLogs' => fn($q) => $q->latest()->limit(10)->with('changedBy'),
             ]);
             return new RoomResource($room);

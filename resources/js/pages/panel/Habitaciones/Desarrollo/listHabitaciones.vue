@@ -220,7 +220,7 @@
             </template>
         </Column>
         
-        <Column header="Acciones" style="min-width: 5rem">
+        <Column header="">
             <template #body="{ data }">
                 <Button icon="pi pi-ellipsis-v" text rounded @click="toggleMenu($event, data)" />
             </template>

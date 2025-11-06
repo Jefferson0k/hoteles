@@ -17,7 +17,7 @@ return new class extends Migration
             $table->decimal('total_price', 10, 2);
             $table->datetime('consumed_at');
             $table->text('notes')->nullable();
-            $table->enum('status', ['pendiente', 'pagado'])->default('pagado');
+            $table->enum('status', ['pending', 'paid'])->default('paid');
             // Auditoría
             $table->unsignedBigInteger('created_by')->nullable();
             $table->unsignedBigInteger('updated_by')->nullable();

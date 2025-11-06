@@ -12,7 +12,7 @@ class PaymentPolicy
 
     public function viewAny(User $user)
     {
-        return $user->hasPermissionTo('view payments');
+        return $user->hasPermissionTo('view reportes ingresos');
     }
 
     public function view(User $user, Payment $payment)

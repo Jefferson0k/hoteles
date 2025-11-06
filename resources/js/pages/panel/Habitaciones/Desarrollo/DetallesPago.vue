@@ -187,9 +187,9 @@
                     </Column>
                 </DataTable>
 
-                <div class="flex justify-end mt-3 bg-orange-50 p-3 rounded">
+                <div class="flex justify-end mt-3 p-3 rounded">
                     <div class="text-right">
-                        <span class="text-gray-600 mr-3">Total Consumos:</span>
+                        <span class="mr-3">Total Consumos:</span>
                         <span class="font-bold text-xl text-orange-600">S/. {{ formatCurrency(pago.booking.total_consumos) }}</span>
                     </div>
                 </div>

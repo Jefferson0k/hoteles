@@ -13,6 +13,7 @@ use App\Models\CashRegister;
 use App\Models\PaymentMethod;
 use App\Http\Requests\Booking\StoreBookingRequest;
 use App\Http\Requests\Booking\FinishBookingRequest;
+use App\Models\BookingConsumption;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -20,180 +21,145 @@ use Illuminate\Support\Str;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Log;
 
-class BookingController extends Controller
-{
+class BookingController extends Controller{
     /**
      * INICIAR SERVICIO
      * Crea booking, procesa pago y hace check-in automático
      */
-    public function store(StoreBookingRequest $request)
-{
-    try {
-        DB::beginTransaction();
-
-        $validated = $request->validated();
-
-        // 1. VERIFICAR DISPONIBILIDAD
-        $room = Room::findOrFail($validated['room_id']);
-        
-        if ($room->status !== Room::STATUS_AVAILABLE) {
-            return response()->json([
-                'success' => false,
-                'message' => 'La habitación no está disponible. Estado actual: ' . $room->status
-            ], 422);
-        }
-
-        if ($room->hasActiveBooking()) {
-            return response()->json([
-                'success' => false,
-                'message' => 'La habitación ya tiene una reserva activa'
-            ], 422);
-        }
-
-        // 2. CALCULAR FECHAS Y TOTALES
-        $rateType = RateType::findOrFail($validated['rate_type_id']);
-        $checkIn = now();
-        $checkOut = $this->calculateCheckOut($checkIn, $rateType->code, $validated['total_hours']);
-
-        // 🔹 NO multiplicamos por total_hours — el monto ya viene completo desde el frontend
-        $roomSubtotal = $validated['rate_per_hour'];
-        $productsSubtotal = 0;
-
-        // 3. GENERAR CÓDIGO DEL BOOKING
-        $bookingCode = $this->generateBookingCode();
-
-        // 4. CREAR BOOKING
-        $booking = Booking::create([
-            'id' => Str::uuid(),
-            'booking_code' => $bookingCode,
-            'room_id' => $validated['room_id'],
-            'customers_id' => $validated['customers_id'],
-            'rate_type_id' => $validated['rate_type_id'],
-            'currency_id' => $validated['currency_id'],
-            'check_in' => $checkIn,
-            'check_out' => $checkOut,
-            'total_hours' => $validated['total_hours'],
-            'rate_per_hour' => $validated['rate_per_hour'],
-            'rate_per_unit' => $validated['rate_per_hour'],
-            'room_subtotal' => $roomSubtotal,
-            'products_subtotal' => 0,
-            'subtotal' => $roomSubtotal,
-            'tax_amount' => 0,
-            'discount_amount' => 0,
-            'total_amount' => $roomSubtotal,
-            'paid_amount' => 0,
-            'status' => Booking::STATUS_CONFIRMED,
-            'voucher_type' => $validated['voucher_type'] ?? 'ticket',
-            'sub_branch_id' => Auth::user()->sub_branch_id,
-            'created_by' => Auth::id(),
-        ]);
-
-        // 5. PROCESAR CONSUMOS INICIALES
-        if (isset($validated['consumptions']) && count($validated['consumptions']) > 0) {
-            foreach ($validated['consumptions'] as $consumption) {
-                $totalPrice = $consumption['quantity'] * $consumption['unit_price'];
-
-                $booking->consumptions()->create([
-                    'id' => Str::uuid(),
-                    'product_id' => $consumption['product_id'],
-                    'quantity' => $consumption['quantity'],
-                    'unit_price' => $consumption['unit_price'],
-                    'total_price' => $totalPrice,
-                    'consumed_at' => now(),
-                    'created_by' => Auth::id(),
-                ]);
-
-                $productsSubtotal += $totalPrice;
+    public function store(StoreBookingRequest $request){
+        try {
+            DB::beginTransaction();
+            $validated = $request->validated();
+            $room = Room::findOrFail($validated['room_id']);
+            if ($room->status !== Room::STATUS_AVAILABLE) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'La habitación no está disponible. Estado actual: ' . $room->status
+                ], 422);
             }
-
-            // Actualizar totales
-            $booking->products_subtotal = $productsSubtotal;
-            $booking->subtotal = $roomSubtotal + $productsSubtotal;
-            $booking->total_amount = $booking->subtotal;
-            $booking->save();
-        }
-
-        // 6. PROCESAR PAGOS
-        $totalPaid = 0;
-        foreach ($validated['payments'] as $paymentData) {
-            // Validar caja abierta
-            if (isset($paymentData['cash_register_id'])) {
-                $cashRegister = CashRegister::find($paymentData['cash_register_id']);
-                if (!$cashRegister || !$cashRegister->isOpen()) {
-                    throw new \Exception('La caja especificada no está abierta');
-                }
+            if ($room->hasActiveBooking()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'La habitación ya tiene una reserva activa'
+                ], 422);
             }
-
-            // Validar número de operación si es requerido
-            $paymentMethod = PaymentMethod::find($paymentData['payment_method_id']);
-            if ($paymentMethod && $paymentMethod->requires_reference && empty($paymentData['operation_number'])) {
-                throw new \Exception("El método de pago {$paymentMethod->name} requiere un número de operación");
-            }
-
-            Payment::create([
+            $rateType = RateType::findOrFail($validated['rate_type_id']);
+            $checkIn = now();
+            $checkOut = $this->calculateCheckOut($checkIn, $rateType->code, $validated['total_hours']);
+            $roomSubtotal = $validated['rate_per_hour'] * $validated['total_hours'];
+            $productsSubtotal = 0;
+            $bookingCode = $this->generateBookingCode();
+            $booking = Booking::create([
                 'id' => Str::uuid(),
-                'payment_code' => $this->generatePaymentCode(),
-                'booking_id' => $booking->id,
+                'booking_code' => $bookingCode,
+                'room_id' => $validated['room_id'],
+                'customers_id' => $validated['customers_id'],
+                'rate_type_id' => $validated['rate_type_id'],
                 'currency_id' => $validated['currency_id'],
-                'amount' => $paymentData['amount'],
-                'amount_base_currency' => $paymentData['amount'],
-                'payment_method' => $paymentMethod->code ?? 'cash',
-                'payment_method_id' => $paymentData['payment_method_id'],
-                'cash_register_id' => $paymentData['cash_register_id'] ?? null,
-                'operation_number' => $paymentData['operation_number'] ?? null,
-                'payment_date' => now(),
-                'status' => 'completed',
-                'notes' => 'Pago inicial al check-in',
+                'check_in' => $checkIn,
+                'check_out' => $checkOut,
+                'total_hours' => $validated['total_hours'],
+                'rate_per_hour' => $validated['rate_per_hour'],
+                'rate_per_unit' => $validated['rate_per_hour'],
+                'room_subtotal' => $roomSubtotal,
+                'products_subtotal' => 0,
+                'subtotal' => $roomSubtotal,
+                'tax_amount' => 0,
+                'discount_amount' => 0,
+                'total_amount' => $roomSubtotal,
+                'paid_amount' => 0,
+                'status' => Booking::STATUS_CONFIRMED,
+                'voucher_type' => $validated['voucher_type'] ?? 'ticket',
+                'sub_branch_id' => Auth::user()->sub_branch_id,
                 'created_by' => Auth::id(),
             ]);
-
-            $totalPaid += $paymentData['amount'];
+            if (isset($validated['consumptions']) && count($validated['consumptions']) > 0) {
+                foreach ($validated['consumptions'] as $consumption) {
+                    $totalPrice = $consumption['quantity'] * $consumption['unit_price'];
+                    
+                    $booking->consumptions()->create([
+                        'id' => Str::uuid(),
+                        'product_id' => $consumption['product_id'],
+                        'quantity' => $consumption['quantity'],
+                        'unit_price' => $consumption['unit_price'],
+                        'total_price' => $totalPrice,
+                        'status' => BookingConsumption::STATUS_PAID,
+                        'consumed_at' => now(),
+                        'created_by' => Auth::id(),
+                    ]);
+                    $productsSubtotal += $totalPrice;
+                }
+                $booking->products_subtotal = $productsSubtotal;
+                $booking->subtotal = $roomSubtotal + $productsSubtotal;
+                $booking->total_amount = $booking->subtotal;
+                $booking->save();
+            }
+            $totalPaid = 0;
+            foreach ($validated['payments'] as $paymentData) {
+                if (isset($paymentData['cash_register_id'])) {
+                    $cashRegister = CashRegister::find($paymentData['cash_register_id']);
+                    if (!$cashRegister || !$cashRegister->isOpen()) {
+                        throw new \Exception('La caja especificada no está abierta');
+                    }
+                }
+                $paymentMethod = PaymentMethod::find($paymentData['payment_method_id']);
+                if ($paymentMethod && $paymentMethod->requires_reference && empty($paymentData['operation_number'])) {
+                    throw new \Exception("El método de pago {$paymentMethod->name} requiere un número de operación");
+                }
+                Payment::create([
+                    'id' => Str::uuid(),
+                    'payment_code' => $this->generatePaymentCode(),
+                    'booking_id' => $booking->id,
+                    'currency_id' => $validated['currency_id'],
+                    'amount' => $paymentData['amount'],
+                    'amount_base_currency' => $paymentData['amount'],
+                    'payment_method' => $paymentMethod->code ?? 'cash',
+                    'payment_method_id' => $paymentData['payment_method_id'],
+                    'cash_register_id' => $paymentData['cash_register_id'] ?? null,
+                    'operation_number' => $paymentData['operation_number'] ?? null,
+                    'payment_date' => now(),
+                    'status' => 'completed',
+                    'notes' => 'Pago inicial al check-in',
+                    'created_by' => Auth::id(),
+                ]);
+                $totalPaid += $paymentData['amount'];
+            }
+            $booking->paid_amount = $totalPaid;
+            $booking->save();
+            $booking->checkIn(Auth::id());
+            DB::commit();
+            return response()->json([
+                'success' => true,
+                'message' => '✅ Servicio iniciado. Habitación ocupada.',
+                'data' => [
+                    'booking' => $booking->fresh([
+                        'customer',
+                        'room',
+                        'rateType',
+                        'currency',
+                        'payments.paymentMethod',
+                        'consumptions.product'
+                    ]),
+                    'check_in' => $checkIn->toDateTimeString(),
+                    'check_out_scheduled' => $checkOut->toDateTimeString(),
+                    'total_paid' => $booking->paid_amount,
+                    'balance' => $booking->balance,
+                ]
+            ], 201);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            
+            Log::error('Error al crear booking:', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al iniciar servicio',
+                'error' => $e->getMessage()
+            ], 500);
         }
-
-        // Actualizar monto pagado
-        $booking->paid_amount = $totalPaid;
-        $booking->save();
-
-        // 7. HACER CHECK-IN AUTOMÁTICO
-        $booking->checkIn(Auth::id());
-
-        DB::commit();
-
-        return response()->json([
-            'success' => true,
-            'message' => '✅ Servicio iniciado. Habitación ocupada.',
-            'data' => [
-                'booking' => $booking->fresh([
-                    'customer',
-                    'room',
-                    'rateType',
-                    'currency',
-                    'payments.paymentMethod',
-                    'consumptions.product'
-                ]),
-                'check_in' => $checkIn->toDateTimeString(),
-                'check_out_scheduled' => $checkOut->toDateTimeString(),
-                'total_paid' => $booking->paid_amount,
-                'balance' => $booking->balance,
-            ]
-        ], 201);
-
-    } catch (\Exception $e) {
-        DB::rollBack();
-        
-        Log::error('Error al crear booking:', [
-            'error' => $e->getMessage(),
-            'trace' => $e->getTraceAsString()
-        ]);
-        
-        return response()->json([
-            'success' => false,
-            'message' => 'Error al iniciar servicio',
-            'error' => $e->getMessage()
-        ], 500);
     }
-}
-
     /**
      * FINALIZAR SERVICIO
      * Calcula tiempo REAL usado, cobra extras si se pasó, hace check-out

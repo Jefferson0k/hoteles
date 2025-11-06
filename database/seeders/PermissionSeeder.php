@@ -9,6 +9,12 @@ class PermissionSeeder extends Seeder{
     public function run(): void{
 
         #=============================
+        #Reportes
+        #=============================
+        Permission::create(['name' => 'view reportes ingresos']);
+        Permission::create(['name' => 'view report de ingreso producto']);
+
+        #=============================
         #Pagos Personal
         #=============================
         Permission::create(['name' => 'view pagos personal']);
@@ -60,16 +66,6 @@ class PermissionSeeder extends Seeder{
         Permission::create(['name' => 'update floors']);
         Permission::create(['name' => 'delete floors']);
         Permission::create(['name' => 'view floors']);
-        
-        # ============================
-        # CUSTOMERS
-        # ============================
-        Permission::create(['name' => 'create customers']);
-        Permission::create(['name' => 'update customers']);
-        Permission::create(['name' => 'delete customers']);
-        Permission::create(['name' => 'view customers']);
-        Permission::create(['name' => 'restore customers']);
-        Permission::create(['name' => 'force delete customers']);
 
         # ============================
         # INVENTORY (SUB_BRANCH_PRODUCTS)
@@ -81,28 +77,6 @@ class PermissionSeeder extends Seeder{
         Permission::create(['name' => 'adjust stock']);
         Permission::create(['name' => 'transfer stock']);
         Permission::create(['name' => 'view low stock']);
-
-        # ============================
-        # SALES
-        # ============================
-        Permission::create(['name' => 'create sales']);
-        Permission::create(['name' => 'update sales']);
-        Permission::create(['name' => 'delete sales']);
-        Permission::create(['name' => 'view sales']);
-        Permission::create(['name' => 'cancel sales']);
-        Permission::create(['name' => 'view all sales']);
-        Permission::create(['name' => 'update all sales']);
-        Permission::create(['name' => 'delete all sales']);
-        Permission::create(['name' => 'cancel all sales']);
-        Permission::create(['name' => 'print sales']);
-
-        # ============================
-        # SALE DETAILS
-        # ============================
-        Permission::create(['name' => 'create sale details']);
-        Permission::create(['name' => 'update sale details']);
-        Permission::create(['name' => 'delete sale details']);
-        Permission::create(['name' => 'view sale details']);
 
         # ============================
         # KARDEX
@@ -158,16 +132,6 @@ class PermissionSeeder extends Seeder{
         Permission::create(['name' => 'add booking consumptions']);
 
         # ============================
-        # PAYMENTS
-        # ============================
-        Permission::create(['name' => 'create payments']);
-        Permission::create(['name' => 'update payments']);
-        Permission::create(['name' => 'delete payments']);
-        Permission::create(['name' => 'view payments']);
-        Permission::create(['name' => 'refund payments']);
-        Permission::create(['name' => 'process payments']);
-
-        # ============================
         # BRANCHES
         # ============================
         Permission::create(['name' => 'create branches']);
@@ -186,15 +150,6 @@ class PermissionSeeder extends Seeder{
         Permission::create(['name' => 'delete sub branches']);
         Permission::create(['name' => 'view sub branches']);
         Permission::create(['name' => 'manage sub branches']);
-
-        # ============================
-        # SYSTEM SETTINGS
-        # ============================
-        Permission::create(['name' => 'view system settings']);
-        Permission::create(['name' => 'view public settings']);
-        Permission::create(['name' => 'create system settings']);
-        Permission::create(['name' => 'update system settings']);
-        Permission::create(['name' => 'delete system settings']);
 
         # ============================
         # USERS
