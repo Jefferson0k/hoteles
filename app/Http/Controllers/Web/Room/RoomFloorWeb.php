@@ -23,4 +23,18 @@ class RoomFloorWeb extends Controller
             'data' => $roomData,
         ]);
     }
+    public function viewdetails($id){
+        $room = Room::with([
+            'floor.subBranch.branch',
+            'roomType',
+            'currentBooking',
+            'statusLogs',
+        ])->findOrFail($id);
+
+        $roomData = new RoomResource($room);
+
+        return Inertia::render('panel/RoomDetails/indexRoomDetails', [
+            'data' => $roomData,
+        ]);
+    }
 }

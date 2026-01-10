@@ -98,6 +98,7 @@ Route::middleware(['auth', 'verified','cash.register.open'])->group(function () 
         Route::get('/aperturar', [cashWebHabitaciones::class, 'view'])->name('aperturar.view');
         Route::get('/habitaciones/online', [habitacionesGestion::class, 'view'])->name('online.view');
         Route::get('/cuarto/{id}', [RoomFloorWeb::class, 'view'])->name('cuarto.view');
+        Route::get('/cuarto/{id}/ocupado', [RoomFloorWeb::class, 'viewdetails'])->name('viewdetails.view');
 
         # 🔹 Kardex (por producto, general y valorizado)
         Route::get('/kardex', [kardexWeb::class, 'view'])->name('kardex.view');
@@ -151,7 +152,6 @@ Route::middleware(['auth', 'verified','cash.register.open'])->group(function () 
 
         Route::get('/egresos', [ReportController::class, 'egresos']);
         Route::get('/egresos-detalle', [ReportController::class, 'egresosDetalle']);
-        Route::get('/egresos-grafica', [ReportController::class, 'egresosGrafica']);
         Route::get('/egresos-distribucion', [ReportController::class, 'egresosDistribucion']);
 
         Route::get('/ingreso-neto', [ReportController::class, 'ingresoNeto']);
@@ -218,6 +218,7 @@ Route::middleware(['auth', 'verified','cash.register.open'])->group(function () 
     Route::get('currencies', [CurrencyController::class, 'index']);
 
     Route::prefix('bookings')->group(function () {
+        Route::get('/', [BookingController::class, 'index']);
         Route::post('/', [BookingController::class, 'store']);
         Route::post('/{booking}/add-consumption', [BookingController::class, 'addConsumption']);
         Route::post('/{booking}/extend-time', [BookingController::class, 'extendTime']);

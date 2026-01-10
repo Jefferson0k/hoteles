@@ -133,7 +133,7 @@
 
                     <Column field="fecha" header="Fecha" sortable style="min-width: 100px">
                         <template #body="{ data }">
-                            <span class="text-sm font-medium">{{ formatoFecha(data.fecha) }}</span>
+                            <span class="text-sm font-medium">{{ data.fecha }}</span>
                         </template>
                     </Column>
 
@@ -163,8 +163,17 @@
                             <Tag :value="getTipoComprobante(data.comprobante)" severity="secondary" class="text-xs" />
                         </template>
                     </Column>
-
-                    <Column field="monto" header="Monto" sortable style="min-width: 120px">
+                    <Column field="igv" header="IGV" sortable style="min-width: 120px">
+                        <template #body="{ data }">
+                            <span class="font-bold text-red-600 text-sm">S/ {{ formatoMoneda(data.igv) }}</span>
+                        </template>
+                    </Column>
+                    <Column field="subtotal" header="Sub Total" sortable style="min-width: 120px">
+                        <template #body="{ data }">
+                            <span class="font-bold text-red-600 text-sm">S/ {{ formatoMoneda(data.subtotal) }}</span>
+                        </template>
+                    </Column>
+                    <Column field="monto" header="Total" sortable style="min-width: 120px">
                         <template #body="{ data }">
                             <span class="font-bold text-red-600 text-sm">S/ {{ formatoMoneda(data.monto) }}</span>
                         </template>
@@ -200,7 +209,7 @@
                     </div>
                     <div>
                         <p class="text-xs">Fecha</p>
-                        <p class="font-semibold">{{ formatoFecha(egresoSeleccionado.fecha) }}</p>
+                        <p class="font-semibold">{{ egresoSeleccionado.fecha }}</p>
                     </div>
                     <div>
                         <p class="text-xs">Proveedor/Empleado</p>
@@ -324,15 +333,6 @@ const formatoMoneda = (valor: number) => {
         maximumFractionDigits: 2
     }).format(valor);
 };
-
-const formatoFecha = (fecha: string) => {
-    return new Date(fecha).toLocaleDateString('es-PE', {
-        day: '2-digit',
-        month: 'short',
-        year: 'numeric'
-    });
-};
-
 const obtenerParametrosMes = () => {
     const fecha = filtroMes.value;
     return {
@@ -390,15 +390,15 @@ const cargarEgresosDistribucion = async () => {
     distribucionTipos.value = response.data.data;
 };
 
-// Gráfica de línea
+// Gráfica de línea - CORREGIDO
 const graficaLinea = computed(() => {
     if (!datosGrafica.value.length) {
         return { labels: [], datasets: [] };
     }
 
+    // Extraer día directamente del string sin usar new Date()
     const labels = datosGrafica.value.map(item => {
-        const fecha = new Date(item.dia);
-        return fecha.getDate().toString();
+        return item.dia.split('-')[2]; // "2026-01-29" -> "29"
     });
 
     return {
@@ -477,15 +477,16 @@ const opcionesDoughnut = {
     }
 };
 
-// Gráfica comparativa
+// Gráfica comparativa - CORREGIDO
 const graficaComparativa = computed(() => {
     if (!datosGrafica.value.length) {
         return { labels: [], datasets: [] };
     }
 
+    // Extraer día y mes directamente del string sin usar new Date()
     const labels = datosGrafica.value.map(item => {
-        const fecha = new Date(item.dia);
-        return `${fecha.getDate()}/${fecha.getMonth() + 1}`;
+        const [year, month, day] = item.dia.split('-');
+        return `${day}/${month}`; // "2026-01-29" -> "29/01"
     });
 
     return {

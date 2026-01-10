@@ -9,6 +9,7 @@ use App\Http\Resources\Movement\MovementResource;
 use App\Models\Movement;
 use App\Pipelines\Movement\MovementPipeline;
 use App\Support\ApiResponse;
+use Carbon\Carbon;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
@@ -19,14 +20,17 @@ class MovementsController extends Controller{
     public function index(){
         try {
             Gate::authorize('viewAny', Movement::class);
+            $user = Auth::user();
             $query = Movement::with(['provider', 'subBranch', 'details'])
-                ->where('sub_branch_id', Auth::user()->sub_branch_id);
-            $movementType = request()->input('movement_type', 'ingreso');
-            $query->where('movement_type', $movementType);
-            $movements = app(MovementPipeline::class)->handle($query);
-            $perPage = request()->input('per_page', 15);
-            $movements = $movements->paginate($perPage);
-            return MovementResource::collection($movements);
+                ->where('sub_branch_id', $user->sub_branch_id);
+            $movementType = request('movement_type', 'ingreso');
+            if ($movementType !== 'all') {
+                $query->where('movement_type', $movementType);
+            }
+            $query = app(MovementPipeline::class)->handle($query);
+            return MovementResource::collection(
+                $query->paginate(request('per_page', 15))
+            );
         } catch (Throwable $e) {
             return $this->exception($e, 'No se pudieron listar los movimientos.');
         }
@@ -57,10 +61,18 @@ class MovementsController extends Controller{
     public function update(UpdateMovementRequest $request, Movement $movement){
         Gate::authorize('update', $movement);
         $data = $request->validated();
+        if (!empty($data['date'])) {
+            $data['date'] = Carbon::createFromFormat('d-m-Y', $data['date'])
+                ->format('Y-m-d');
+        }
         $data['updated_by'] = Auth::id();
         $data['sub_branch_id'] = Auth::user()->sub_branch_id;
         $movement->update($data);
-        return $this->success(new MovementResource($movement), 'Movimiento actualizado correctamente.');
+        return response()->json([
+            'success' => true,
+            'message' => 'Movimiento actualizado correctamente.',
+            'data' => new MovementResource($movement)
+        ]);
     }
     public function destroy(Movement $movement){
         Gate::authorize('delete', $movement);

@@ -231,11 +231,11 @@
                                         'h-2 rounded-full transition-all duration-1000',
                                         remainingSeconds <= 300 ? 'bg-red-500' : 'bg-primary-500'
                                     ]"
-                                    :style="{ width: `${Math.max(0, progressPercentage)}%` }"
+                                    :style="{ width: `${progressPercentage}%` }"
                                 ></div>
                             </div>
                             <p class="text-xs mt-2 text-surface-600 dark:text-surface-400">
-                                {{ progressPercentage >= 0 ? progressPercentage.toFixed(1) : 0 }}% del tiempo restante
+                                {{ progressPercentage > 0 ? progressPercentage.toFixed(1) : 0 }}% del tiempo restante
                             </p>
                         </div>
                     </div>
@@ -488,6 +488,43 @@
                 </div>
             </div>
 
+            <!-- Método de Pago para saldo pendiente (si hay) -->
+            <div v-if="false" class="p-4 bg-surface-50 dark:bg-surface-800 rounded-lg border border-surface-200 dark:border-surface-700">
+                <h4 class="font-semibold mb-3 text-surface-900 dark:text-surface-0">
+                    <i class="pi pi-credit-card mr-2"></i>Método de Pago (Saldo Pendiente)
+                </h4>
+                
+                <div class="grid grid-cols-2 gap-3">
+                    <div 
+                        v-for="method in paymentMethods" 
+                        :key="method.id"
+                        @click="selectedFinishPaymentMethod = method"
+                        :class="[
+                            'p-3 rounded-lg border-2 cursor-pointer transition-all',
+                            selectedFinishPaymentMethod?.id === method.id 
+                                ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/30 shadow-lg' 
+                                : 'border-surface-300 dark:border-surface-600 bg-white dark:bg-surface-800 hover:border-primary-300'
+                        ]"
+                    >
+                        <div class="flex items-center justify-between">
+                            <span class="font-medium text-sm">{{ method.name }}</span>
+                            <i v-if="selectedFinishPaymentMethod?.id === method.id" class="pi pi-check-circle text-primary-500"></i>
+                        </div>
+                    </div>
+                </div>
+
+                <div v-if="selectedFinishPaymentMethod?.requires_reference" class="mt-3">
+                    <label class="block text-sm font-medium mb-2">
+                        Número de Operación *
+                    </label>
+                    <InputText 
+                        v-model="finishOperationNumber" 
+                        placeholder="Ingrese número de operación"
+                        class="w-full"
+                    />
+                </div>
+            </div>
+
             <!-- Notas opcionales -->
             <div>
                 <label class="block text-sm font-medium mb-2">
@@ -513,14 +550,6 @@
             />
         </template>
     </Dialog>
-
-    <!-- Componente de Ticket -->
-    <TicketComprobante 
-        v-if="ticketBookingId"
-        :booking-id="ticketBookingId"
-        :visible="showTicket"
-        @close="onTicketClose"
-    />
 </template>
 
 <script setup lang="ts">
@@ -535,7 +564,8 @@ import Textarea from 'primevue/textarea';
 import Message from 'primevue/message';
 import { useToast } from 'primevue/usetoast';
 import axios from 'axios';
-import TicketComprobante from './TicketComprobante.vue';
+
+// Importar componentes modulares
 import CustomerRegistration from './CustomerRegistration.vue';
 import ProductSales from './ProductSales.vue';
 import BillingSummary from './BillingSummary.vue';
@@ -546,10 +576,6 @@ interface Props {
 
 const props = defineProps<Props>();
 const toast = useToast();
-
-// Estado del ticket
-const showTicket = ref(false);
-const ticketBookingId = ref<string | null>(null);
 
 // ==========================================
 // ESTADOS PRINCIPALES
@@ -586,7 +612,6 @@ const finishNotes = ref<string>('');
 
 // Estado del booking actual
 const currentBookingId = ref<string | null>(null);
-const initialBookingData = ref<any>(null);
 
 // ==========================================
 // COMPUTED PROPERTIES
@@ -603,14 +628,7 @@ const formattedTime = computed(() => {
 
 const progressPercentage = computed(() => {
     if (totalSeconds.value === 0) return 0;
-    
-    // Si el tiempo restante es negativo (tiempo extra), la barra debe estar en 0%
-    if (remainingSeconds.value <= 0) return 0;
-    
-    // Calcular el porcentaje del tiempo restante respecto al tiempo total
     const percentage = (remainingSeconds.value / totalSeconds.value) * 100;
-    
-    // Asegurar que esté entre 0 y 100
     return Math.max(0, Math.min(100, percentage));
 });
 
@@ -685,7 +703,7 @@ const calculateTotalHours = () => {
     switch (selectedRate.value) {
         case 'hour': return timeAmount.value;
         case 'day': return timeAmount.value * 24;
-        case 'night': return timeAmount.value * 8;
+        case 'night': return timeAmount.value * 12;
         default: return 1;
     }
 };
@@ -695,18 +713,6 @@ const formatExtraTime = () => {
     const hours = Math.floor(extraSeconds / 3600);
     const minutes = Math.floor((extraSeconds % 3600) / 60);
     return `${hours}h ${minutes}m`;
-};
-
-const formatDateTime = (dateString: string | null) => {
-    if (!dateString) return 'N/A';
-    const date = new Date(dateString);
-    return date.toLocaleString('es-PE', {
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit'
-    });
 };
 
 // ==========================================
@@ -733,204 +739,10 @@ const getStatusSeverity = (status: string) => {
 };
 
 // ==========================================
-// CARGAR BOOKING ACTUAL (USANDO TIEMPO DEL BACKEND)
-// ==========================================
-const loadCurrentBooking = () => {
-    const booking = props.roomData?.current_booking;
-    if (!booking) {
-        console.log('📭 No hay booking activo para cargar');
-        return;
-    }
-
-    console.log('📦 Cargando booking actual:', booking);
-
-    // Guardar datos iniciales
-    initialBookingData.value = booking;
-    currentBookingId.value = booking.booking_id;
-
-    // Cargar cliente
-    if (booking.guest_name && booking.guest_document) {
-        selectedClient.value = {
-            id: booking.customers_id || booking.booking_id,
-            name: booking.guest_name,
-            document_number: booking.guest_document
-        };
-    }
-
-    // Determinar tarifa desde el booking
-    if (booking.rate_type) {
-        const rateMap: Record<string, 'hour' | 'day' | 'night'> = {
-            'HOUR': 'hour',
-            'DAY': 'day',
-            'NIGHT': 'night',
-            'Por Hora': 'hour',
-            'Por Día': 'day',
-            'Por Noche': 'night'
-        };
-        selectedRate.value = rateMap[booking.rate_type] || 'hour';
-    }
-
-    // Usar total_hours del backend
-    if (booking.total_hours) {
-        timeAmount.value = booking.total_hours;
-    }
-
-    // Cargar productos consumidos
-    if (booking.consumptions && booking.consumptions.length > 0) {
-        products.value = booking.consumptions.map((c: any) => ({
-            id: c.product_id,
-            nombre: c.product_name,
-            codigo: c.product_id,
-            precio_venta: c.unit_price,
-            quantity: c.quantity,
-            es_fraccionable: false,
-            fracciones_por_unidad: 1,
-            unidad: 'unidad',
-            stock_actual: 999
-        }));
-    }
-
-    // USAR EL TIEMPO DEL BACKEND
-    if (booking.remaining_seconds !== undefined && booking.remaining_seconds !== null) {
-        console.log('⏱️ Usando tiempo del backend:', {
-            remainingSeconds: booking.remaining_seconds,
-            remainingTime: booking.remaining_time,
-            isTimeExpired: booking.is_time_expired
-        });
-
-        remainingSeconds.value = booking.remaining_seconds;
-        
-        if (selectedRate.value && booking.total_hours) {
-            const multipliers: Record<string, number> = {
-                'hour': 3600,
-                'day': 86400,
-                'night': 28800
-            };
-            totalSeconds.value = booking.total_hours * multipliers[selectedRate.value];
-        } else {
-            if (booking.check_in) {
-                const checkInDate = new Date(booking.check_in);
-                const now = new Date();
-                const elapsedMs = now.getTime() - checkInDate.getTime();
-                const elapsedSeconds = Math.floor(elapsedMs / 1000);
-                totalSeconds.value = elapsedSeconds + Math.max(0, remainingSeconds.value);
-            }
-        }
-
-        isTimerRunning.value = true;
-        
-        if (timerInterval.value) {
-            clearInterval(timerInterval.value);
-        }
-        
-        timerInterval.value = setInterval(() => {
-            remainingSeconds.value--;
-            
-            if (remainingSeconds.value === 0) {
-                toast.add({
-                    severity: 'warn',
-                    summary: '⚠️ Tiempo Contratado Agotado',
-                    detail: 'A partir de ahora se cobrará tiempo extra al finalizar.',
-                    life: 8000
-                });
-            }
-            
-            if (remainingSeconds.value === 300) {
-                toast.add({
-                    severity: 'warn',
-                    summary: '⏰ Tiempo por Agotarse',
-                    detail: 'Quedan 5 minutos del tiempo contratado',
-                    life: 5000
-                });
-            }
-        }, 1000);
-
-        toast.add({
-            severity: 'info',
-            summary: '📌 Booking Activo Recuperado',
-            detail: `Cliente: ${booking.guest_name} - Tiempo restante: ${booking.remaining_time || formattedTime.value}`,
-            life: 5000
-        });
-    } else {
-        console.warn('⚠️ No se encontró remaining_seconds en el booking');
-    }
-};
-
-// ==========================================
-// RECARGAR DATOS DE LA HABITACIÓN
-// ==========================================
-const reloadRoomData = async () => {
-    try {
-        if (!props.roomData?.id) {
-            console.error('No hay ID de habitación para recargar');
-            return;
-        }
-
-        console.log('🔄 Recargando datos de la habitación:', props.roomData.id);
-
-        const response = await axios.get(`/rooms/${props.roomData.id}`, {
-            params: {
-                include: 'floor.subBranch.branch,roomType,bookings.bookingConsumptions.product,statusLogs,currentBooking'
-            }
-        });
-
-        if (!response.data.data) {
-            throw new Error('No se recibieron datos en la respuesta');
-        }
-        
-        Object.assign(props.roomData, response.data.data);
-        
-        console.log('✅ Datos de habitación actualizados:', props.roomData);
-
-        if (props.roomData?.current_booking) {
-            console.log('🎯 Booking activo detectado, cargando...');
-            loadCurrentBooking();
-        } else {
-            console.log('📭 No hay booking activo, reseteando estado...');
-            if (selectedRate.value) {
-                const newTotalSeconds = calculateTotalSeconds();
-                totalSeconds.value = newTotalSeconds;
-                remainingSeconds.value = newTotalSeconds;
-            }
-            isTimerRunning.value = false;
-            
-            if (timerInterval.value) {
-                clearInterval(timerInterval.value);
-                timerInterval.value = null;
-            }
-        }
-        
-        toast.add({
-            severity: 'success',
-            summary: 'Estado Actualizado',
-            detail: 'La información de la habitación ha sido actualizada',
-            life: 3000
-        });
-        
-    } catch (error: any) {
-        console.error('❌ Error al recargar datos:', error);
-        
-        let errorMessage = 'No se pudieron actualizar los datos de la habitación';
-        
-        if (error.response?.data?.message) {
-            errorMessage = error.response.data.message;
-        } else if (error.message) {
-            errorMessage = error.message;
-        }
-        
-        toast.add({
-            severity: 'error',
-            summary: 'Error',
-            detail: errorMessage,
-            life: 5000
-        });
-    }
-};
-
-// ==========================================
-// CONFIRMAR INICIO DE SERVICIO
+// INICIAR SERVICIO
 // ==========================================
 const confirmStartService = async () => {
+    // Validaciones previas
     if (!selectedClient.value) {
         toast.add({
             severity: 'warn',
@@ -985,10 +797,8 @@ const confirmStartService = async () => {
     }
 };
 
-// ==========================================
-// PROCESAR INICIO DE SERVICIO
-// ==========================================
 const processStartService = async () => {
+    // Validar método de pago
     if (!selectedPaymentMethod.value) {
         toast.add({
             severity: 'warn',
@@ -1019,19 +829,10 @@ const processStartService = async () => {
         return;
     }
 
-    if (!selectedClient.value?.id) {
-        toast.add({
-            severity: 'error',
-            summary: 'Cliente Inválido',
-            detail: 'El cliente no tiene un ID válido',
-            life: 4000
-        });
-        return;
-    }
-
     processingPayment.value = true;
 
     try {
+        // Calcular totales
         const roomSubtotal = getCurrentRoomPrice() * timeAmount.value;
         const productsSubtotal = products.value.reduce((sum, p) => {
             const quantity = parseFloat(p.quantity || p.cantidad || 0);
@@ -1040,10 +841,7 @@ const processStartService = async () => {
         }, 0);
         const totalAmount = roomSubtotal + productsSubtotal;
 
-        if (!rateTypes.value || rateTypes.value.length === 0) {
-            throw new Error('No se pudieron cargar los tipos de tarifa');
-        }
-
+        // Obtener rate_type_id
         const getRateTypeId = () => {
             const rateTypeMap: Record<string, string> = {
                 'hour': 'HOUR',
@@ -1055,22 +853,18 @@ const processStartService = async () => {
             const rateType = rateTypes.value.find(rt => rt.code === rateCode);
             
             if (!rateType) {
-                console.error('Rate types disponibles:', rateTypes.value);
-                throw new Error(`No se encontró el rate type para: ${selectedRate.value}. Código buscado: ${rateCode}`);
+                throw new Error(`No se encontró el rate type para: ${selectedRate.value}`);
             }
             
             return rateType.id;
         };
 
-        if (!selectedCurrency.value?.id) {
-            throw new Error('Moneda no seleccionada o inválida');
-        }
-
+        // Preparar datos del booking
         const bookingData = {
             room_id: props.roomData?.id,
             customers_id: selectedClient.value.id,
             rate_type_id: getRateTypeId(),
-            currency_id: selectedCurrency.value.id,
+            currency_id: selectedCurrency.value?.id,
             total_hours: calculateTotalHours(),
             rate_per_hour: getCurrentRoomPrice(),
             voucher_type: voucherType.value,
@@ -1080,7 +874,7 @@ const processStartService = async () => {
                     payment_method_id: selectedPaymentMethod.value.id,
                     amount: totalAmount,
                     cash_register_id: userCashRegister.value.id,
-                    operation_number: selectedPaymentMethod.value.requires_reference ? operationNumber.value.trim() : null
+                    operation_number: selectedPaymentMethod.value.requires_reference ? operationNumber.value : null
                 }
             ],
             
@@ -1093,82 +887,72 @@ const processStartService = async () => {
 
         console.log('📤 Enviando booking:', bookingData);
 
+        // Llamada al backend
         const response = await axios.post('/bookings', bookingData);
 
         console.log('✅ Respuesta del servidor:', response.data);
 
-        if (!response.data.data?.booking?.id) {
-            throw new Error('No se recibió ID del booking en la respuesta');
-        }
-
-        currentBookingId.value = response.data.data.booking.id;
+        // Guardar booking ID
+        currentBookingId.value = response.data.data?.booking?.id || null;
 
         toast.add({
             severity: 'success',
             summary: '✅ Servicio Iniciado',
             detail: response.data.message || 'Habitación ocupada correctamente',
-            life: 5000
+            life: 4000
         });
 
+        // Cerrar modal
         showStartDialog.value = false;
         
-        operationNumber.value = '';
-        selectedPaymentMethod.value = paymentMethods.value.find(m => m.code === 'cash') || null;
+        // Iniciar cronómetro visual
+        totalSeconds.value = calculateTotalSeconds();
+        remainingSeconds.value = totalSeconds.value;
+        isTimerRunning.value = true;
         
-        await reloadRoomData();
+        timerInterval.value = setInterval(() => {
+            remainingSeconds.value--;
+            
+            if (remainingSeconds.value === 0) {
+                toast.add({
+                    severity: 'warn',
+                    summary: '⚠️ Tiempo Contratado Agotado',
+                    detail: 'A partir de ahora se cobrará tiempo extra al finalizar.',
+                    life: 8000
+                });
+            }
+        }, 1000);
 
+        // Actualizar estado de la habitación en la UI
         if (props.roomData) {
             props.roomData.status = 'occupied';
         }
 
-        toast.add({
-            severity: 'info',
-            summary: '📋 Booking Creado',
-            detail: `Código: ${response.data.data.booking.booking_code || currentBookingId.value}`,
-            life: 4000
-        });
-
     } catch (error: any) {
         console.error('❌ Error al crear booking:', error);
         
-        if (error.response?.status === 422) {
+        if (error.response?.data?.errors) {
             const errors = error.response.data.errors;
-            if (errors) {
-                Object.keys(errors).forEach(key => {
-                    toast.add({
-                        severity: 'error',
-                        summary: 'Error de Validación',
-                        detail: `${key}: ${Array.isArray(errors[key]) ? errors[key][0] : errors[key]}`,
-                        life: 6000
-                    });
-                });
-            } else {
+            Object.keys(errors).forEach(key => {
                 toast.add({
                     severity: 'error',
                     summary: 'Error de Validación',
-                    detail: error.response.data.message || 'Datos inválidos',
+                    detail: `${key}: ${Array.isArray(errors[key]) ? errors[key][0] : errors[key]}`,
                     life: 5000
                 });
-            }
+            });
         } else if (error.response?.data?.message) {
             toast.add({
                 severity: 'error',
-                summary: 'Error del Servidor',
-                detail: error.response.data.message,
-                life: 5000
-            });
-        } else if (error.message) {
-            toast.add({
-                severity: 'error',
                 summary: 'Error',
-                detail: error.message,
+                detail: error.response.data.message,
                 life: 5000
             });
         } else {
             toast.add({
                 severity: 'error',
-                summary: 'Error Inesperado',
-                detail: 'Ocurrió un error inesperado al crear el booking',
+                summary: 'Error',
+                detail: error.message || 'Error al crear el booking',
                 life: 5000
             });
         }
@@ -1178,7 +962,7 @@ const processStartService = async () => {
 };
 
 // ==========================================
-// CONFIRMAR FINALIZAR SERVICIO
+// FINALIZAR SERVICIO
 // ==========================================
 const confirmFinishService = async () => {
     if (!currentBookingId.value) {
@@ -1194,9 +978,6 @@ const confirmFinishService = async () => {
     showFinishDialog.value = true;
 };
 
-// ==========================================
-// PROCESAR FINALIZAR SERVICIO
-// ==========================================
 const processFinishService = async () => {
     if (!currentBookingId.value) {
         toast.add({
@@ -1215,11 +996,12 @@ const processFinishService = async () => {
             notes: finishNotes.value || undefined,
         };
 
+        // Si hay saldo pendiente y se seleccionó método de pago
         if (selectedFinishPaymentMethod.value) {
             finishData.payments = [
                 {
                     payment_method_id: selectedFinishPaymentMethod.value.id,
-                    amount: 0,
+                    amount: 0, // El backend calculará el monto
                     cash_register_id: userCashRegister.value.id,
                     operation_number: selectedFinishPaymentMethod.value.requires_reference ? finishOperationNumber.value : null
                 }
@@ -1232,8 +1014,7 @@ const processFinishService = async () => {
 
         console.log('✅ Respuesta del servidor:', response.data);
 
-        ticketBookingId.value = currentBookingId.value;
-
+        // Detener cronómetro
         if (timerInterval.value) {
             clearInterval(timerInterval.value);
             timerInterval.value = null;
@@ -1247,8 +1028,10 @@ const processFinishService = async () => {
             life: 4000
         });
 
+        // Cerrar modal
         showFinishDialog.value = false;
 
+        // Mostrar resumen si hay tiempo extra
         if (response.data.data?.time_summary?.extra_hours > 0) {
             toast.add({
                 severity: 'info',
@@ -1258,7 +1041,10 @@ const processFinishService = async () => {
             });
         }
 
-        showTicket.value = true;
+        // Recargar página después de 2 segundos
+        setTimeout(() => {
+            window.location.reload();
+        }, 2000);
 
     } catch (error: any) {
         console.error('❌ Error al finalizar booking:', error);
@@ -1300,6 +1086,7 @@ const loadNecessaryData = async () => {
         userCashRegister.value = cashRegisterRes.data.data;
         rateTypes.value = rateTypesRes.data.data || rateTypesRes.data;
 
+        // Seleccionar por defecto
         if (currencies.value.length > 0 && !selectedCurrency.value) {
             selectedCurrency.value = currencies.value[0];
         }
@@ -1350,9 +1137,7 @@ watch([timeAmount, selectedRate], () => {
 onMounted(() => {
     loadInitialData();
     
-    if (props.roomData?.current_booking) {
-        loadCurrentBooking();
-    } else if (selectedRate.value) {
+    if (selectedRate.value) {
         remainingSeconds.value = calculateTotalSeconds();
     }
 });
@@ -1362,11 +1147,4 @@ onUnmounted(() => {
         clearInterval(timerInterval.value);
     }
 });
-
-const onTicketClose = () => {
-    showTicket.value = false;
-    setTimeout(() => {
-        window.location.reload();
-    }, 500);
-};
 </script>

@@ -31,6 +31,7 @@
                     <label for="price_hour" class="font-semibold">Precio/Hora <span class="text-red-500">*</span></label>
                     <InputNumber id="price_hour" v-model="roomType.base_price_per_hour" mode="currency" currency="PEN"
                         locale="es-PE" :invalid="!!errors.base_price_per_hour" />
+                    <small class="text-gray-500">60 minutos</small>
                     <small v-if="errors.base_price_per_hour" class="text-red-500">{{ errors.base_price_per_hour
                         }}</small>
                 </div>
@@ -39,6 +40,7 @@
                     <label for="price_day" class="font-semibold">Precio/Día <span class="text-red-500">*</span></label>
                     <InputNumber id="price_day" v-model="roomType.base_price_per_day" mode="currency" currency="PEN"
                         locale="es-PE" :invalid="!!errors.base_price_per_day" />
+                    <small class="text-gray-500">24 horas</small>
                     <small v-if="errors.base_price_per_day" class="text-red-500">{{ errors.base_price_per_day }}</small>
                 </div>
 
@@ -46,6 +48,7 @@
                     <label for="price_night" class="font-semibold">Precio/Noche <span class="text-red-500">*</span></label>
                     <InputNumber id="price_night" v-model="roomType.base_price_per_night" mode="currency" currency="PEN"
                         locale="es-PE" :invalid="!!errors.base_price_per_night" />
+                    <small class="text-gray-500">12 horas</small>
                     <small v-if="errors.base_price_per_night" class="text-red-500">{{ errors.base_price_per_night
                         }}</small>
                 </div>

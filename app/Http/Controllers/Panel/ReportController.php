@@ -15,13 +15,9 @@ use Carbon\Carbon;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Auth;
 
-class ReportController extends Controller
-{
-    // 🏨 1. INGRESOS DE HABITACIONES AL MES
-    public function ingresosHabitaciones(Request $request)
-    {
+class ReportController extends Controller{
+    public function ingresosHabitaciones(Request $request){
         $filtros = $this->getFiltros($request);
-        
         $data = Booking::whereHas('room', function($query) use ($filtros) {
                 $query->where('sub_branch_id', $filtros['subBranchId']);
             })
@@ -34,7 +30,6 @@ class ReportController extends Controller
                 DB::raw('SUM(total_hours) as total_horas')
             )
             ->first();
-
         return response()->json([
             'total' => $data->total ?? 0,
             'total_reservas' => $data->total_reservas ?? 0,
@@ -42,8 +37,7 @@ class ReportController extends Controller
             'total_horas' => $data->total_horas ?? 0
         ]);
     }
-    public function ingresosHabitacionesGrafica(Request $request)
-    {
+    public function ingresosHabitacionesGrafica(Request $request){
         $filtros = $this->getFiltros($request);
         
         $datos = Booking::whereHas('room', function($query) use ($filtros) {
@@ -84,58 +78,44 @@ class ReportController extends Controller
             'reservas_con_consumo' => $data->reservas_con_consumo ?? 0
         ]);
     }
-
-    // En ReportController
-public function ingresoBrutoComparativa(Request $request)
-{
-    try {
-        $filtros = $this->getFiltros($request);
-        $subBranchId = $filtros['subBranchId'];
-        
-        // Obtener datos de los últimos 6 meses para comparativa
-        $datos = [];
-        for ($i = 5; $i >= 0; $i--) {
-            $fecha = Carbon::now()->subMonths($i);
-            $startDate = $fecha->copy()->startOfMonth();
-            $endDate = $fecha->copy()->endOfMonth();
-            
-            $ingresosHabitaciones = Booking::whereHas('room', function($query) use ($subBranchId) {
-                    $query->where('sub_branch_id', $subBranchId);
-                })
-                ->whereIn('status', ['finished', 'active'])
-                ->whereBetween('check_in', [$startDate, $endDate])
-                ->sum('room_subtotal');
-
-            $ingresosProductos = BookingConsumption::whereHas('booking.room', function($query) use ($subBranchId) {
-                    $query->where('sub_branch_id', $subBranchId);
-                })
-                ->whereBetween('consumed_at', [$startDate, $endDate])
-                ->sum('total_price');
-
-            $datos[] = [
-                'mes' => $fecha->format('Y-m'),
-                'mes_nombre' => $fecha->locale('es')->monthName,
-                'ingresos_habitaciones' => $ingresosHabitaciones,
-                'ingresos_productos' => $ingresosProductos,
-                'total' => $ingresosHabitaciones + $ingresosProductos
-            ];
+    public function ingresoBrutoComparativa(Request $request){
+        try {
+            $filtros = $this->getFiltros($request);
+            $subBranchId = $filtros['subBranchId'];
+            $datos = [];
+            for ($i = 5; $i >= 0; $i--) {
+                $fecha = Carbon::now()->subMonths($i);
+                $startDate = $fecha->copy()->startOfMonth();
+                $endDate = $fecha->copy()->endOfMonth();
+                $ingresosHabitaciones = Booking::whereHas('room', function($query) use ($subBranchId) {
+                        $query->where('sub_branch_id', $subBranchId);
+                    })
+                    ->whereIn('status', ['finished', 'active'])
+                    ->whereBetween('check_in', [$startDate, $endDate])
+                    ->sum('room_subtotal');
+                $ingresosProductos = BookingConsumption::whereHas('booking.room', function($query) use ($subBranchId) {
+                        $query->where('sub_branch_id', $subBranchId);
+                    })
+                    ->whereBetween('consumed_at', [$startDate, $endDate])
+                    ->sum('total_price');
+                $datos[] = [
+                    'mes' => $fecha->format('Y-m'),
+                    'mes_nombre' => $fecha->locale('es')->monthName,
+                    'ingresos_habitaciones' => $ingresosHabitaciones,
+                    'ingresos_productos' => $ingresosProductos,
+                    'total' => $ingresosHabitaciones + $ingresosProductos
+                ];
+            }
+            return response()->json($datos);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error generando comparativa: ' . $e->getMessage()
+            ], 500);
         }
-
-        return response()->json($datos);
-
-    } catch (\Exception $e) {
-        return response()->json([
-            'success' => false,
-            'message' => 'Error generando comparativa: ' . $e->getMessage()
-        ], 500);
     }
-}
-
-    // En tu ReportController
-    public function ingresoProductosGrafica(Request $request)
-    {
+    public function ingresoProductosGrafica(Request $request){
         $filtros = $this->getFiltros($request);
-        
         $datos = BookingConsumption::whereHas('booking.room', function($query) use ($filtros) {
                 $query->where('sub_branch_id', $filtros['subBranchId']);
             })
@@ -147,13 +127,9 @@ public function ingresoBrutoComparativa(Request $request)
             ->groupBy('dia')
             ->orderBy('dia')
             ->get();
-
         return response()->json($datos);
     }
-
-    // 💰 3. INGRESO BRUTO
-    public function ingresoBruto(Request $request)
-    {
+    public function ingresoBruto(Request $request){
         $filtros = $this->getFiltros($request);
         
         // Ingresos habitaciones
@@ -179,7 +155,6 @@ public function ingresoBrutoComparativa(Request $request)
             'ingresos_productos' => $ingresosProductos
         ]);
     }
-    // 👥 6. NUMERO DE CLIENTES
     public function numeroClientes(Request $request)
     {
         $filtros = $this->getFiltros($request);
@@ -219,8 +194,7 @@ public function ingresoBrutoComparativa(Request $request)
     }
 
     // 💸 EGRESOS - TOTALES POR MES
-    public function egresos(Request $request)
-    {
+    public function egresos(Request $request){
         try {
             $month = $request->input('month', now()->month);
             $year = $request->input('year', now()->year);
@@ -229,19 +203,35 @@ public function ingresoBrutoComparativa(Request $request)
             $startDate = Carbon::create($year, $month, 1)->startOfMonth();
             $endDate = Carbon::create($year, $month, 1)->endOfMonth();
 
-            // Egresos de movimientos (compras, gastos)
-            $egresosMovimientos = Movement::where('movement_type', 'egreso')
+            /*
+            |----------------------------------------------------
+            | EGRESOS POR MOVIMIENTOS (COMPRAS / GASTOS)
+            |----------------------------------------------------
+            */
+            $movimientos = Movement::where('movement_type', 'egreso')
                 ->where('sub_branch_id', $subBranchId)
                 ->whereBetween('date', [$startDate, $endDate])
                 ->join('movement_details', 'movements.id', '=', 'movement_details.movement_id')
+                ->groupBy('movements.id')
                 ->select(
-                    DB::raw('SUM(movement_details.total_price) as total'),
-                    DB::raw('COUNT(DISTINCT movements.id) as total_movimientos')
+                    'movements.id',
+                    DB::raw('SUM(movement_details.total_price) as subtotal')
                 )
-                ->first();
+                ->get();
 
-            // Egresos de pagos al personal - CORREGIDO
-            $egresosPersonal = PagoPersonal::where('sub_branch_id', $subBranchId)
+            // 👉 aplicar IGV por movimiento
+            $egresosMovimientos = $movimientos->sum(function ($mov) {
+                return round($mov->subtotal * 1.18, 2);
+            });
+
+            $totalMovimientosCompras = $movimientos->count();
+
+            /*
+            |----------------------------------------------------
+            | PAGOS AL PERSONAL
+            |----------------------------------------------------
+            */
+            $pagosPersonal = PagoPersonal::where('sub_branch_id', $subBranchId)
                 ->whereBetween('fecha_pago', [$startDate, $endDate])
                 ->where('estado', 'pagado')
                 ->select(
@@ -250,18 +240,30 @@ public function ingresoBrutoComparativa(Request $request)
                 )
                 ->first();
 
-            $totalEgresos = ($egresosMovimientos->total ?? 0) + ($egresosPersonal->total_personal ?? 0);
-            $totalMovimientos = ($egresosMovimientos->total_movimientos ?? 0) + ($egresosPersonal->total_pagos_personal ?? 0);
+            $egresosPersonal = (float) ($pagosPersonal->total_personal ?? 0);
+            $totalPagosPersonal = $pagosPersonal->total_pagos_personal ?? 0;
+
+            /*
+            |----------------------------------------------------
+            | TOTALES
+            |----------------------------------------------------
+            */
+            $totalEgresos = round($egresosMovimientos + $egresosPersonal, 2);
+            $totalRegistros = $totalMovimientosCompras + $totalPagosPersonal;
 
             return response()->json([
                 'success' => true,
                 'data' => [
                     'total' => $totalEgresos,
-                    'total_movimientos' => $totalMovimientos,
-                    'egresos_movimientos' => $egresosMovimientos->total ?? 0,
-                    'egresos_personal' => $egresosPersonal->total_personal ?? 0,
-                    'total_movimientos_compras' => $egresosMovimientos->total_movimientos ?? 0,
-                    'total_pagos_personal' => $egresosPersonal->total_pagos_personal ?? 0,
+                    'total_movimientos' => $totalRegistros,
+
+                    // 🔥 AHORA SÍ CUADRA
+                    'egresos_movimientos' => round($egresosMovimientos, 2),
+                    'egresos_personal' => round($egresosPersonal, 2),
+
+                    'total_movimientos_compras' => $totalMovimientosCompras,
+                    'total_pagos_personal' => $totalPagosPersonal,
+
                     'periodo' => [
                         'month' => $month,
                         'year' => $year,
@@ -280,25 +282,24 @@ public function ingresoBrutoComparativa(Request $request)
         }
     }
 
-    // 📊 EGRESOS - DETALLE PARA TABLA POR MES
-    public function egresosDetalle(Request $request)
-    {
+
+    public function egresosDetalle(Request $request){
         try {
             $month = $request->input('month', now()->month);
             $year = $request->input('year', now()->year);
             $subBranchId = Auth::user()->sub_branch_id;
-
             $startDate = Carbon::create($year, $month, 1)->startOfMonth();
             $endDate = Carbon::create($year, $month, 1)->endOfMonth();
-
-            // Movimientos (compras/gastos)
             $movimientos = Movement::where('movement_type', 'egreso')
                 ->where('sub_branch_id', $subBranchId)
                 ->whereBetween('date', [$startDate, $endDate])
                 ->with(['provider', 'details.product'])
                 ->select('id', 'code', 'date', 'provider_id', 'voucher_type', 'payment_type')
                 ->get()
-                ->map(function($movement) {
+                ->map(function ($movement) {
+                    $subtotal = $movement->details->sum('total_price');
+                    $igv = round($subtotal * 0.18, 2);
+                    $total = round($subtotal + $igv, 2);
                     return [
                         'id' => $movement->id,
                         'tipo' => 'compra_gasto',
@@ -308,8 +309,10 @@ public function ingresoBrutoComparativa(Request $request)
                         'concepto' => 'Compra/Gasto',
                         'comprobante' => $movement->voucher_type,
                         'tipo_pago' => $movement->payment_type,
-                        'monto' => $movement->details->sum('total_price'),
-                        'detalles' => $movement->details->map(function($detail) {
+                        'monto' => $total,
+                        'subtotal' => $subtotal,
+                        'igv' => $igv,
+                        'detalles' => $movement->details->map(function ($detail) {
                             return [
                                 'producto' => $detail->product->name ?? 'N/A',
                                 'cantidad' => $detail->boxes * $detail->units_per_box,
@@ -319,14 +322,12 @@ public function ingresoBrutoComparativa(Request $request)
                         })
                     ];
                 });
-
-            // Pagos al personal - CORREGIDO
             $pagosPersonal = PagoPersonal::where('sub_branch_id', $subBranchId)
                 ->whereBetween('fecha_pago', [$startDate, $endDate])
                 ->where('estado', 'pagado')
                 ->with(['empleado'])
                 ->get()
-                ->map(function($pago) {
+                ->map(function ($pago) {
                     return [
                         'id' => $pago->id,
                         'tipo' => 'pago_personal',
@@ -347,10 +348,9 @@ public function ingresoBrutoComparativa(Request $request)
                         ]
                     ];
                 });
-
-            // Combinar y ordenar por fecha
-            $egresos = $movimientos->merge($pagosPersonal)->sortByDesc('fecha')->values();
-
+            $egresos = $movimientos->merge($pagosPersonal)
+                ->sortByDesc('fecha')
+                ->values();
             return response()->json([
                 'success' => true,
                 'data' => [
@@ -365,7 +365,6 @@ public function ingresoBrutoComparativa(Request $request)
                     ]
                 ]
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -373,87 +372,119 @@ public function ingresoBrutoComparativa(Request $request)
             ], 500);
         }
     }
-
     // 📈 EGRESOS - GRÁFICA POR MES
     public function egresosGrafica(Request $request)
-    {
-        try {
-            $month = $request->input('month', now()->month);
-            $year = $request->input('year', now()->year);
-            $subBranchId = Auth::user()->sub_branch_id;
+{
+    try {
+        $month = $request->input('month', now()->month);
+        $year = $request->input('year', now()->year);
+        $subBranchId = Auth::user()->sub_branch_id;
 
-            $startDate = Carbon::create($year, $month, 1)->startOfMonth();
-            $endDate = Carbon::create($year, $month, 1)->endOfMonth();
+        $startDate = Carbon::create($year, $month, 1)->startOfMonth();
+        $endDate = Carbon::create($year, $month, 1)->endOfMonth();
 
-            // Egresos por día de movimientos
-            $egresosMovimientos = Movement::where('movement_type', 'egreso')
-                ->where('sub_branch_id', $subBranchId)
-                ->whereBetween('date', [$startDate, $endDate])
-                ->join('movement_details', 'movements.id', '=', 'movement_details.movement_id')
-                ->select(
-                    DB::raw('DATE(movements.date) as dia'),
-                    DB::raw('SUM(movement_details.total_price) as egresos_movimientos'),
-                    DB::raw('COUNT(DISTINCT movements.id) as movimientos')
-                )
-                ->groupBy('dia')
-                ->orderBy('dia')
-                ->get();
+        /*
+        |----------------------------------------------------
+        | TRAER SUBTOTALES POR MOVIMIENTO Y POR DÍA
+        |----------------------------------------------------
+        */
+        $movimientos = Movement::where('movement_type', 'egreso')
+            ->where('sub_branch_id', $subBranchId)
+            ->whereBetween('date', [$startDate, $endDate])
+            ->join('movement_details', 'movements.id', '=', 'movement_details.movement_id')
+            ->select(
+                'movements.id',
+                DB::raw('DATE(movements.date) as dia'),
+                DB::raw('SUM(movement_details.total_price) as subtotal')
+            )
+            ->groupBy('movements.id', 'dia')
+            ->get();
 
-            // Egresos por día de personal - CORREGIDO
-            $egresosPersonal = PagoPersonal::where('sub_branch_id', $subBranchId)
-                ->whereBetween('fecha_pago', [$startDate, $endDate])
-                ->where('estado', 'pagado')
-                ->select(
-                    DB::raw('DATE(fecha_pago) as dia'),
-                    DB::raw('SUM(monto) as egresos_personal'),
-                    DB::raw('COUNT(*) as pagos_personal')
-                )
-                ->groupBy('dia')
-                ->orderBy('dia')
-                ->get();
+        /*
+        |----------------------------------------------------
+        | CALCULAR TOTAL CON IGV POR MOVIMIENTO
+        |----------------------------------------------------
+        */
+        $movimientosPorDia = $movimientos->groupBy('dia')->map(function ($items, $dia) {
 
-            // Combinar datos
-            $diasUnicos = collect()
-                ->merge($egresosMovimientos->pluck('dia'))
-                ->merge($egresosPersonal->pluck('dia'))
-                ->unique()
-                ->sort()
-                ->values();
-
-            $datos = $diasUnicos->map(function($dia) use ($egresosMovimientos, $egresosPersonal) {
-                $movimiento = $egresosMovimientos->firstWhere('dia', $dia);
-                $personal = $egresosPersonal->firstWhere('dia', $dia);
-
-                return [
-                    'dia' => $dia,
-                    'egresos_movimientos' => $movimiento ? (float) $movimiento->egresos_movimientos : 0,
-                    'egresos_personal' => $personal ? (float) $personal->egresos_personal : 0,
-                    'egresos_totales' => ($movimiento ? (float) $movimiento->egresos_movimientos : 0) + 
-                                       ($personal ? (float) $personal->egresos_personal : 0),
-                    'movimientos' => $movimiento ? $movimiento->movimientos : 0,
-                    'pagos_personal' => $personal ? $personal->pagos_personal : 0
-                ];
+            $totalMovimientos = $items->sum(function ($mov) {
+                // 👇 si luego quieres condicionar includes_igv, es aquí
+                return round($mov->subtotal * 1.18, 2);
             });
 
-            return response()->json([
-                'success' => true,
-                'data' => $datos,
-                'periodo' => [
-                    'month' => $month,
-                    'year' => $year,
-                    'month_name' => Carbon::create($year, $month, 1)->locale('es')->monthName,
-                    'start_date' => $startDate->toDateString(),
-                    'end_date' => $endDate->toDateString()
-                ]
-            ]);
+            return [
+                'dia' => $dia,
+                'egresos_movimientos' => round($totalMovimientos, 2),
+                'movimientos' => $items->count()
+            ];
+        });
 
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Error cargando gráfica de egresos: ' . $e->getMessage()
-            ], 500);
-        }
+        /*
+        |----------------------------------------------------
+        | PAGOS AL PERSONAL
+        |----------------------------------------------------
+        */
+        $egresosPersonal = PagoPersonal::where('sub_branch_id', $subBranchId)
+            ->whereBetween('fecha_pago', [$startDate, $endDate])
+            ->where('estado', 'pagado')
+            ->select(
+                DB::raw('DATE(fecha_pago) as dia'),
+                DB::raw('SUM(monto) as egresos_personal'),
+                DB::raw('COUNT(*) as pagos_personal')
+            )
+            ->groupBy('dia')
+            ->get()
+            ->keyBy('dia');
+
+        /*
+        |----------------------------------------------------
+        | UNIFICAR DÍAS
+        |----------------------------------------------------
+        */
+        $diasUnicos = collect()
+            ->merge($movimientosPorDia->keys())
+            ->merge($egresosPersonal->keys())
+            ->unique()
+            ->sort()
+            ->values();
+
+        $datos = $diasUnicos->map(function ($dia) use ($movimientosPorDia, $egresosPersonal) {
+
+            $mov = $movimientosPorDia->get($dia);
+            $per = $egresosPersonal->get($dia);
+
+            $totalMovimientos = $mov['egresos_movimientos'] ?? 0;
+            $totalPersonal = $per ? (float) $per->egresos_personal : 0;
+
+            return [
+                'dia' => $dia,
+                'egresos_movimientos' => $totalMovimientos,
+                'egresos_personal' => $totalPersonal,
+                'egresos_totales' => round($totalMovimientos + $totalPersonal, 2),
+                'movimientos' => $mov['movimientos'] ?? 0,
+                'pagos_personal' => $per ? $per->pagos_personal : 0
+            ];
+        });
+
+        return response()->json([
+            'success' => true,
+            'data' => $datos,
+            'periodo' => [
+                'month' => $month,
+                'year' => $year,
+                'month_name' => Carbon::create($year, $month, 1)->locale('es')->monthName,
+                'start_date' => $startDate->toDateString(),
+                'end_date' => $endDate->toDateString()
+            ]
+        ]);
+
+    } catch (\Exception $e) {
+        return response()->json([
+            'success' => false,
+            'message' => 'Error cargando gráfica de egresos: ' . $e->getMessage()
+        ], 500);
     }
+}
 
     // 🥧 EGRESOS - DISTRIBUCIÓN POR TIPO
     public function egresosDistribucion(Request $request)

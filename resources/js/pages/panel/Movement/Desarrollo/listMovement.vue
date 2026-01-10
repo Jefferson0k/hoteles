@@ -228,13 +228,13 @@ const actionsMenu = ref();
 const selectedMovement = ref(null);
 const updateMovementRef = ref();
 // NUEVO: Filtro por tipo de movimiento
-const selectedMovementType = ref('ingreso'); // Por defecto muestra ingresos
+const selectedMovementType = ref('all'); // Por defecto muestra ingresos
 
 // OPCIONES PARA TIPO DE MOVIMIENTO
 const movementTypeOptions = [
     { label: 'Ingresos', value: 'ingreso' },
     { label: 'Egresos', value: 'egreso' },
-    { label: 'Todos', value: 'todos' }
+    { label: 'Todos', value: 'all' }
 ];
 
 // Elementos del menú de acciones
@@ -265,20 +265,21 @@ let searchTimeout = null;
 
 // Funciones de utilidad para validación y formato
 
-// NUEVA: Obtener etiqueta del tipo de movimiento
 function getMovementTypeLabel(type) {
-    if (!type) return 'Sin tipo';
     const types = {
-        'ingreso': 'Ingreso',
-        'egreso': 'Egreso'
+        ingreso: 'Ingreso',
+        egreso: 'Egreso'
     };
     return types[type] || type;
 }
 
 // NUEVA: Obtener severity del tipo de movimiento
 function getMovementTypeSeverity(type) {
-    if (!type) return 'danger';
-    return type === 'ingreso' ? 'success' : 'warning';
+    const map = {
+        ingreso: 'success',
+        egreso: 'danger' // egresos en rojo 🔴
+    };
+    return map[type] || 'secondary';
 }
 
 // Formatear moneda

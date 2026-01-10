@@ -36,7 +36,6 @@ class RoomResource extends JsonResource
                     $isTimeExpired = false;
                 }
                 
-                // Formatear tiempo restante CORREGIDO - solo horas, minutos, segundos
                 $totalSecs = abs($remainingSeconds);
                 $hours = floor($totalSecs / 3600);
                 $minutes = floor(($totalSecs % 3600) / 60);
@@ -60,16 +59,17 @@ class RoomResource extends JsonResource
             'current_booking' => $currentBooking ? [
                 'booking_id'      => $currentBooking->id,
                 'booking_code'    => $currentBooking->booking_code,
+                'booking_rate_per_unit' => $currentBooking->rate_per_unit,
                 'guest_name'      => $currentBooking->customer?->name,
+                'guest_client_id' => $currentBooking->customer?->id,
                 'guest_document'  => $currentBooking->customer?->document_number,
                 'check_in'        => $currentBooking->check_in?->toDateTimeString(),
                 'check_out'       => $currentBooking->check_out?->toDateTimeString(),
                 'total_hours'     => $currentBooking->total_hours,
                 'rate_type'       => $currentBooking->rateType?->name,
                 
-                // NUEVO: Tiempos calculados desde el backend
                 'remaining_time'  => $remainingTime,
-                'remaining_seconds' => (int) $remainingSeconds, // Asegurar que sea entero
+                'remaining_seconds' => (int) $remainingSeconds,
                 'is_time_expired' => $isTimeExpired,
                 'estimated_checkout' => $estimatedCheckout,
                 
