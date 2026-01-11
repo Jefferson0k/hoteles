@@ -165,13 +165,6 @@
             </span>
           </template>
         </Column>
-        <Column field="precio_promedio" header="Precio Promedio" sortable>
-          <template #body="{ data }">
-            <span class="text-gray-600">
-              S/ {{ data.precio_promedio?.toFixed(2) }}
-            </span>
-          </template>
-        </Column>
         <Column header="Rendimiento" style="width: 150px">
           <template #body="{ data }">
             <div class="flex items-center gap-2">

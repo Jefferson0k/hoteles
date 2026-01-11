@@ -19,21 +19,23 @@ class StoreBookingRequest extends FormRequest
             'customers_id' => 'required|uuid|exists:customers,id',
             'rate_type_id' => 'required|uuid|exists:rate_types,id',
             'currency_id' => 'required|uuid|exists:currencies,id',
-            
-            // Tiempo y tarifa
-            'total_hours' => 'required|integer|min:1|max:720', // Máximo 30 días
+
+            // Tiempo y tarifa - AHORA ACEPTA quantity O total_hours
+            'quantity' => 'required_without:total_hours|integer|min:1|max:365',
+            'total_hours' => 'required_without:quantity|integer|min:1|max:8760',
             'rate_per_hour' => 'required|numeric|min:0',
-            
+            'rate_per_unit' => 'nullable|numeric|min:0',
+
             // Comprobante
             'voucher_type' => 'required|in:ticket,boleta,factura',
-            
+
             // Pagos
             'payments' => 'required|array|min:1',
             'payments.*.payment_method_id' => 'required|uuid|exists:payment_methods,id',
             'payments.*.amount' => 'required|numeric|min:0.01',
             'payments.*.cash_register_id' => 'required|uuid|exists:cash_registers,id',
             'payments.*.operation_number' => 'nullable|string|max:100',
-            
+
             // Productos opcionales
             'consumptions' => 'nullable|array',
             'consumptions.*.product_id' => 'required|uuid|exists:products,id',
@@ -51,8 +53,17 @@ class StoreBookingRequest extends FormRequest
             'customers_id.exists' => 'El cliente seleccionado no existe',
             'rate_type_id.required' => 'El tipo de tarifa es obligatorio',
             'currency_id.required' => 'La moneda es obligatoria',
-            'total_hours.required' => 'El total de horas o días es obligatorio',
-            'total_hours.min' => 'Debe contratar al menos 1 unidad de tiempo',
+            
+            // Mensajes para quantity
+            'quantity.required_without' => 'La cantidad es obligatoria',
+            'quantity.min' => 'Debe contratar al menos 1 unidad',
+            'quantity.max' => 'No puede contratar más de 365 unidades',
+            
+            // Mensajes para total_hours (legacy)
+            'total_hours.required_without' => 'El total de horas es obligatorio',
+            'total_hours.min' => 'Debe contratar al menos 1 hora',
+            'total_hours.max' => 'No puede contratar más de 8760 horas (1 año)',
+            
             'rate_per_hour.required' => 'La tarifa base es obligatoria',
             'voucher_type.required' => 'El tipo de comprobante es obligatorio',
             'voucher_type.in' => 'El tipo de comprobante debe ser: ticket, boleta o factura',
@@ -63,9 +74,6 @@ class StoreBookingRequest extends FormRequest
         ];
     }
 
-    /**
-     * Validación adicional (solo chequea estructura, no montos)
-     */
     public function withValidator($validator)
     {
         $validator->after(function ($validator) {
@@ -73,7 +81,6 @@ class StoreBookingRequest extends FormRequest
                 return;
             }
 
-            // Solo aseguramos que exista al menos un pago positivo
             $totalPaid = collect($this->payments)->sum('amount');
             if ($totalPaid <= 0) {
                 $validator->errors()->add(

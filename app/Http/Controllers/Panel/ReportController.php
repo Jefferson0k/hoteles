@@ -18,43 +18,53 @@ use Illuminate\Support\Facades\Auth;
 class ReportController extends Controller{
     public function ingresosHabitaciones(Request $request){
         $filtros = $this->getFiltros($request);
-        $data = Booking::whereHas('room', function($query) use ($filtros) {
-                $query->where('sub_branch_id', $filtros['subBranchId']);
+        $data = Booking::whereHas('room.floor.subBranch', function($query) use ($filtros) {
+                $query->where('id', $filtros['subBranchId']);
             })
-            ->whereIn('status', ['finished', 'active'])
+            ->whereIn('status', [
+                Booking::STATUS_CHECKED_OUT,
+                Booking::STATUS_CHECKED_IN
+            ])
             ->whereBetween('check_in', [$filtros['startDate'], $filtros['endDate']])
-            ->select(
-                DB::raw('SUM(room_subtotal) as total'),
-                DB::raw('COUNT(*) as total_reservas'),
-                DB::raw('AVG(room_subtotal) as promedio_reserva'),
-                DB::raw('SUM(total_hours) as total_horas')
-            )
+            ->selectRaw('
+                SUM(room_subtotal) as total,
+                COUNT(*) as total_reservas,
+                AVG(room_subtotal) as promedio_reserva,
+                SUM(total_hours) as total_horas,
+                SUM(quantity) as total_quantity
+            ')
             ->first();
+
         return response()->json([
-            'total' => $data->total ?? 0,
-            'total_reservas' => $data->total_reservas ?? 0,
-            'promedio_reserva' => $data->promedio_reserva ?? 0,
-            'total_horas' => $data->total_horas ?? 0
+            'total' => (float) ($data->total ?? 0),
+            'total_reservas' => (int) ($data->total_reservas ?? 0),
+            'promedio_reserva' => (float) ($data->promedio_reserva ?? 0),
+            'total_horas' => (int) ($data->total_horas ?? 0),
+            'total_quantity' => (int) ($data->total_quantity ?? 0)
         ]);
     }
-    public function ingresosHabitacionesGrafica(Request $request){
-        $filtros = $this->getFiltros($request);
-        
-        $datos = Booking::whereHas('room', function($query) use ($filtros) {
-                $query->where('sub_branch_id', $filtros['subBranchId']);
-            })
-            ->whereIn('status', ['finished', 'active'])
-            ->whereBetween('check_in', [$filtros['startDate'], $filtros['endDate']])
-            ->select(
-                DB::raw('DATE(check_in) as dia'),
-                DB::raw('SUM(room_subtotal) as ingresos')
-            )
-            ->groupBy('dia')
-            ->orderBy('dia')
-            ->get();
-
-        return response()->json($datos);
-    }
+    public function ingresosHabitacionesGrafica(Request $request)
+{
+    $filtros = $this->getFiltros($request);
+    
+    $datos = Booking::whereHas('room.floor.subBranch', function($query) use ($filtros) {
+            $query->where('id', $filtros['subBranchId']);
+        })
+        ->whereIn('status', [
+            Booking::STATUS_CHECKED_OUT,
+            Booking::STATUS_CHECKED_IN
+        ])
+        ->whereBetween('check_in', [$filtros['startDate'], $filtros['endDate']])
+        ->select(
+            DB::raw('DATE(check_in) as dia'),
+            DB::raw('SUM(room_subtotal) as ingresos')
+        )
+        ->groupBy('dia')
+        ->orderBy('dia')
+        ->get();
+    
+    return response()->json($datos);
+}
 
     // 🛍️ 2. INGRESO DE PRODUCTOS
     public function ingresoProductos(Request $request)
@@ -78,77 +88,95 @@ class ReportController extends Controller{
             'reservas_con_consumo' => $data->reservas_con_consumo ?? 0
         ]);
     }
-    public function ingresoBrutoComparativa(Request $request){
-        try {
-            $filtros = $this->getFiltros($request);
-            $subBranchId = $filtros['subBranchId'];
-            $datos = [];
-            for ($i = 5; $i >= 0; $i--) {
-                $fecha = Carbon::now()->subMonths($i);
-                $startDate = $fecha->copy()->startOfMonth();
-                $endDate = $fecha->copy()->endOfMonth();
-                $ingresosHabitaciones = Booking::whereHas('room', function($query) use ($subBranchId) {
-                        $query->where('sub_branch_id', $subBranchId);
-                    })
-                    ->whereIn('status', ['finished', 'active'])
-                    ->whereBetween('check_in', [$startDate, $endDate])
-                    ->sum('room_subtotal');
-                $ingresosProductos = BookingConsumption::whereHas('booking.room', function($query) use ($subBranchId) {
-                        $query->where('sub_branch_id', $subBranchId);
-                    })
-                    ->whereBetween('consumed_at', [$startDate, $endDate])
-                    ->sum('total_price');
-                $datos[] = [
-                    'mes' => $fecha->format('Y-m'),
-                    'mes_nombre' => $fecha->locale('es')->monthName,
-                    'ingresos_habitaciones' => $ingresosHabitaciones,
-                    'ingresos_productos' => $ingresosProductos,
-                    'total' => $ingresosHabitaciones + $ingresosProductos
-                ];
-            }
-            return response()->json($datos);
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Error generando comparativa: ' . $e->getMessage()
-            ], 500);
+    public function ingresoBrutoComparativa(Request $request)
+{
+    try {
+        $filtros = $this->getFiltros($request);
+        $subBranchId = $filtros['subBranchId'];
+        $datos = [];
+
+        for ($i = 5; $i >= 0; $i--) {
+            $fecha = Carbon::now()->subMonths($i);
+            $startDate = $fecha->copy()->startOfMonth();
+            $endDate = $fecha->copy()->endOfMonth();
+
+            $ingresosHabitaciones = Booking::whereHas('room', function($query) use ($subBranchId) {
+                    $query->where('sub_branch_id', $subBranchId);
+                })
+                ->whereIn('status', [
+                    Booking::STATUS_CHECKED_OUT,
+                    Booking::STATUS_CHECKED_IN
+                ])
+                ->whereBetween('check_out', [$startDate, $endDate])
+                ->sum('room_subtotal');
+
+            $ingresosProductos = BookingConsumption::whereHas('booking.room', function($query) use ($subBranchId) {
+                    $query->where('sub_branch_id', $subBranchId);
+                })
+                ->whereBetween('consumed_at', [$startDate, $endDate])
+                ->sum('total_price');
+
+            $datos[] = [
+                'mes' => $fecha->format('Y-m'),
+                'mes_nombre' => ucfirst($fecha->locale('es')->monthName),
+                'ingresos_habitaciones' => (float) $ingresosHabitaciones,
+                'ingresos_productos' => (float) $ingresosProductos,
+                'total' => (float) ($ingresosHabitaciones + $ingresosProductos)
+            ];
         }
+
+        return response()->json($datos);
+
+    } catch (\Exception $e) {
+        \Log::error('Error en ingresoBrutoComparativa: ' . $e->getMessage());
+        
+        return response()->json([
+            'success' => false,
+            'message' => 'Error generando comparativa'
+        ], 500);
     }
+}
     public function ingresoProductosGrafica(Request $request){
         $filtros = $this->getFiltros($request);
-        $datos = BookingConsumption::whereHas('booking.room', function($query) use ($filtros) {
+        $datos = BookingConsumption::whereHas('booking.room', function ($query) use ($filtros) {
                 $query->where('sub_branch_id', $filtros['subBranchId']);
             })
-            ->whereBetween('consumed_at', [$filtros['startDate'], $filtros['endDate']])
-            ->select(
-                DB::raw('DATE(consumed_at) as dia'),
-                DB::raw('SUM(total_price) as ingresos')
-            )
-            ->groupBy('dia')
+            ->whereBetween('consumed_at', [
+                Carbon::parse($filtros['startDate'])->startOfDay(),
+                Carbon::parse($filtros['endDate'])->endOfDay()
+            ])
+            ->selectRaw('
+                DATE(consumed_at) as dia,
+                SUM(total_price) as ingresos
+            ')
+            ->groupByRaw('DATE(consumed_at)')
             ->orderBy('dia')
             ->get();
-        return response()->json($datos);
+        $resultado = $datos->map(function ($item) {
+            return [
+                'dia' => Carbon::parse($item->dia)->format('d/m/Y'),
+                'ingresos' => (float) $item->ingresos
+            ];
+        });
+        return response()->json($resultado);
     }
     public function ingresoBruto(Request $request){
         $filtros = $this->getFiltros($request);
-        
-        // Ingresos habitaciones
         $ingresosHabitaciones = Booking::whereHas('room', function($query) use ($filtros) {
                 $query->where('sub_branch_id', $filtros['subBranchId']);
             })
-            ->whereIn('status', ['finished', 'active'])
+            ->whereIn('status', [
+                Booking::STATUS_CHECKED_OUT, // En lugar de 'finished'
+                Booking::STATUS_CHECKED_IN   // En lugar de 'active'
+            ])
             ->whereBetween('check_in', [$filtros['startDate'], $filtros['endDate']])
             ->sum('room_subtotal');
-
-        // Ingresos productos
         $ingresosProductos = BookingConsumption::whereHas('booking.room', function($query) use ($filtros) {
                 $query->where('sub_branch_id', $filtros['subBranchId']);
             })
             ->whereBetween('consumed_at', [$filtros['startDate'], $filtros['endDate']])
             ->sum('total_price');
-
         $ingresoBruto = $ingresosHabitaciones + $ingresosProductos;
-
         return response()->json([
             'total' => $ingresoBruto,
             'ingresos_habitaciones' => $ingresosHabitaciones,
@@ -544,25 +572,290 @@ class ReportController extends Controller{
     }
     // 📈 INGRESO NETO - TOTALES POR MES
     public function ingresoNeto(Request $request)
-    {
-        try {
-            $month = $request->input('month', now()->month);
-            $year = $request->input('year', now()->year);
-            $subBranchId = Auth::user()->sub_branch_id;
+{
+    try {
+        $month = $request->input('month', now()->month);
+        $year = $request->input('year', now()->year);
+        $subBranchId = Auth::user()->sub_branch_id;
+        
+        $startDate = Carbon::create($year, $month, 1)->startOfMonth();
+        $endDate = Carbon::create($year, $month, 1)->endOfMonth();
 
-            $startDate = Carbon::create($year, $month, 1)->startOfMonth();
-            $endDate = Carbon::create($year, $month, 1)->endOfMonth();
+        // ============================================
+        // INGRESOS
+        // ============================================
+        
+        // ✅ CORREGIDO: usar check_out y estados correctos
+        $ingresosHabitaciones = Booking::whereHas('room', function($query) use ($subBranchId) {
+                $query->where('sub_branch_id', $subBranchId);
+            })
+            ->whereIn('status', [
+                Booking::STATUS_CHECKED_OUT,
+                Booking::STATUS_CHECKED_IN
+            ])
+            ->whereBetween('check_out', [$startDate, $endDate])  // ✅ check_out
+            ->sum('room_subtotal');
 
-            // INGRESOS
-            // Ingresos por habitaciones
+        // Ingresos por productos
+        $ingresosProductos = BookingConsumption::whereHas('booking.room', function($query) use ($subBranchId) {
+                $query->where('sub_branch_id', $subBranchId);
+            })
+            ->whereBetween('consumed_at', [$startDate, $endDate])
+            ->sum('total_price');
+
+        $ingresoBruto = $ingresosHabitaciones + $ingresosProductos;
+
+        // ============================================
+        // EGRESOS
+        // ============================================
+        
+        // ✅ CORREGIDO: Calcular subtotal y aplicar IGV
+        $subTotalMovimientos = Movement::where('movement_type', 'egreso')
+            ->where('sub_branch_id', $subBranchId)
+            ->whereBetween('date', [$startDate, $endDate])
+            ->join('movement_details', 'movements.id', '=', 'movement_details.movement_id')
+            ->sum('movement_details.total_price');
+        
+        // Aplicar IGV del 18%
+        $egresosMovimientos = $subTotalMovimientos * 1.18;
+
+        // ✅ CORREGIDO: Estado 'pagado' en lugar de 'completado'
+        $egresosPersonal = PagoPersonal::where('sub_branch_id', $subBranchId)
+            ->whereBetween('fecha_pago', [$startDate, $endDate])
+            ->where('estado', 'pagado')  // ✅ CAMBIADO
+            ->sum('monto');
+
+        $egresosTotales = $egresosMovimientos + $egresosPersonal;
+        $ingresoNeto = $ingresoBruto - $egresosTotales;
+
+        // ============================================
+        // MÉTRICAS ADICIONALES
+        // ============================================
+        
+        $margenGanancia = $ingresoBruto > 0 
+            ? round(($ingresoNeto / $ingresoBruto) * 100, 2) 
+            : 0;
+        
+        $porcentajeEgresos = $ingresoBruto > 0 
+            ? round(($egresosTotales / $ingresoBruto) * 100, 2) 
+            : 0;
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'ingreso_neto' => (float) $ingresoNeto,
+                'ingreso_bruto' => (float) $ingresoBruto,
+                'egresos_totales' => (float) $egresosTotales,
+                'ingresos_habitaciones' => (float) $ingresosHabitaciones,
+                'ingresos_productos' => (float) $ingresosProductos,
+                'egresos_movimientos' => (float) $egresosMovimientos,
+                'egresos_personal' => (float) $egresosPersonal,
+                'margen_ganancia' => (float) $margenGanancia,
+                'porcentaje_egresos' => (float) $porcentajeEgresos,
+                // ✅ NUEVO: Desglose de movimientos
+                'desglose_movimientos' => [
+                    'subtotal' => (float) $subTotalMovimientos,
+                    'igv' => (float) ($subTotalMovimientos * 0.18),
+                    'total' => (float) $egresosMovimientos
+                ],
+                // ✅ NUEVO: Métricas adicionales
+                'metricas' => [
+                    'rentabilidad' => $ingresoNeto >= 0 ? 'positiva' : 'negativa',
+                    'porcentaje_habitaciones' => $ingresoBruto > 0 
+                        ? round(($ingresosHabitaciones / $ingresoBruto) * 100, 2) 
+                        : 0,
+                    'porcentaje_productos' => $ingresoBruto > 0 
+                        ? round(($ingresosProductos / $ingresoBruto) * 100, 2) 
+                        : 0,
+                    'porcentaje_movimientos' => $egresosTotales > 0 
+                        ? round(($egresosMovimientos / $egresosTotales) * 100, 2) 
+                        : 0,
+                    'porcentaje_personal' => $egresosTotales > 0 
+                        ? round(($egresosPersonal / $egresosTotales) * 100, 2) 
+                        : 0
+                ],
+                'periodo' => [
+                    'month' => (int) $month,
+                    'year' => (int) $year,
+                    'month_name' => ucfirst(Carbon::create($year, $month, 1)->locale('es')->monthName),
+                    'start_date' => $startDate->toDateString(),
+                    'end_date' => $endDate->toDateString()
+                ]
+            ]
+        ]);
+
+    } catch (\Exception $e) {
+        \Log::error('Error en ingresoNeto: ' . $e->getMessage());
+        
+        return response()->json([
+            'success' => false,
+            'message' => 'Error cargando ingreso neto'
+        ], 500);
+    }
+}
+
+    // 📊 INGRESO NETO - GRÁFICA COMPARATIVA
+    public function ingresoNetoGrafica(Request $request)
+{
+    try {
+        $month = $request->input('month', now()->month);
+        $year = $request->input('year', now()->year);
+        $subBranchId = Auth::user()->sub_branch_id;
+        
+        $startDate = Carbon::create($year, $month, 1)->startOfMonth();
+        $endDate = Carbon::create($year, $month, 1)->endOfMonth();
+
+        // Obtener datos por día para el mes actual
+        $datos = [];
+        $diasEnMes = $startDate->daysInMonth;
+
+        for ($dia = 1; $dia <= $diasEnMes; $dia++) {
+            $fechaActual = Carbon::create($year, $month, $dia);
+
+            // ============================================
+            // INGRESOS DEL DÍA
+            // ============================================
+            
+            // ✅ CORREGIDO: usar check_out y estados correctos
+            $ingresosHabitacionesDia = Booking::whereHas('room', function($query) use ($subBranchId) {
+                    $query->where('sub_branch_id', $subBranchId);
+                })
+                ->whereIn('status', [
+                    Booking::STATUS_CHECKED_OUT,
+                    Booking::STATUS_CHECKED_IN
+                ])
+                ->whereDate('check_out', $fechaActual)  // ✅ check_out
+                ->sum('room_subtotal');
+
+            $ingresosProductosDia = BookingConsumption::whereHas('booking.room', function($query) use ($subBranchId) {
+                    $query->where('sub_branch_id', $subBranchId);
+                })
+                ->whereDate('consumed_at', $fechaActual)
+                ->sum('total_price');
+
+            $ingresosDia = $ingresosHabitacionesDia + $ingresosProductosDia;
+
+            // ============================================
+            // EGRESOS DEL DÍA
+            // ============================================
+            
+            // ✅ CORREGIDO: Calcular subtotal y aplicar IGV
+            $subTotalMovimientosDia = Movement::where('movement_type', 'egreso')
+                ->where('sub_branch_id', $subBranchId)
+                ->whereDate('date', $fechaActual)
+                ->join('movement_details', 'movements.id', '=', 'movement_details.movement_id')
+                ->sum('movement_details.total_price');
+            
+            // Aplicar IGV del 18%
+            $egresosMovimientosDia = $subTotalMovimientosDia * 1.18;
+
+            // ✅ CORREGIDO: Estado 'pagado' en lugar de 'completado'
+            $egresosPersonalDia = PagoPersonal::where('sub_branch_id', $subBranchId)
+                ->whereDate('fecha_pago', $fechaActual)
+                ->where('estado', 'pagado')  // ✅ CAMBIADO
+                ->sum('monto');
+
+            $egresosDia = $egresosMovimientosDia + $egresosPersonalDia;
+            $ingresoNetoDia = $ingresosDia - $egresosDia;
+
+            $datos[] = [
+                'dia' => $fechaActual->toDateString(),
+                'dia_numero' => (int) $dia,
+                'dia_semana' => ucfirst($fechaActual->locale('es')->dayName),  // ✅ NUEVO
+                'ingresos' => (float) $ingresosDia,
+                'egresos' => (float) $egresosDia,
+                'ingreso_neto' => (float) $ingresoNetoDia,
+                'ingresos_habitaciones' => (float) $ingresosHabitacionesDia,
+                'ingresos_productos' => (float) $ingresosProductosDia,
+                'egresos_movimientos' => (float) $egresosMovimientosDia,
+                'egresos_personal' => (float) $egresosPersonalDia
+            ];
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => $datos,
+            'periodo' => [
+                'month' => (int) $month,
+                'year' => (int) $year,
+                'month_name' => ucfirst(Carbon::create($year, $month, 1)->locale('es')->monthName),
+                'start_date' => $startDate->toDateString(),
+                'end_date' => $endDate->toDateString(),
+                'total_dias' => $diasEnMes
+            ],
+            // ✅ NUEVO: Resumen del mes
+            'resumen_mes' => [
+                'ingreso_bruto_total' => (float) collect($datos)->sum('ingresos'),
+                'egresos_totales' => (float) collect($datos)->sum('egresos'),
+                'ingreso_neto_total' => (float) collect($datos)->sum('ingreso_neto'),
+                'promedio_diario_ingresos' => (float) collect($datos)->avg('ingresos'),
+                'promedio_diario_egresos' => (float) collect($datos)->avg('egresos'),
+                'promedio_diario_neto' => (float) collect($datos)->avg('ingreso_neto'),
+                'mejor_dia' => $this->obtenerMejorDia($datos),
+                'peor_dia' => $this->obtenerPeorDia($datos)
+            ]
+        ]);
+
+    } catch (\Exception $e) {
+        \Log::error('Error en ingresoNetoGrafica: ' . $e->getMessage());
+        
+        return response()->json([
+            'success' => false,
+            'message' => 'Error cargando gráfica de ingreso neto'
+        ], 500);
+    }
+}
+
+// ✅ MÉTODOS AUXILIARES (agregar al final del controlador)
+private function obtenerMejorDia($datos)
+{
+    $mejorDia = collect($datos)->sortByDesc('ingreso_neto')->first();
+    
+    return $mejorDia ? [
+        'fecha' => $mejorDia['dia'],
+        'dia_numero' => $mejorDia['dia_numero'],
+        'ingreso_neto' => $mejorDia['ingreso_neto']
+    ] : null;
+}
+
+private function obtenerPeorDia($datos)
+{
+    $peorDia = collect($datos)->sortBy('ingreso_neto')->first();
+    
+    return $peorDia ? [
+        'fecha' => $peorDia['dia'],
+        'dia_numero' => $peorDia['dia_numero'],
+        'ingreso_neto' => $peorDia['ingreso_neto']
+    ] : null;
+}
+
+    // 📈 INGRESO NETO - COMPARATIVA MENSUAL (ÚLTIMOS 6 MESES)
+    public function ingresoNetoComparativa(Request $request)
+{
+    try {
+        $subBranchId = Auth::user()->sub_branch_id;
+        $datos = [];
+
+        for ($i = 5; $i >= 0; $i--) {
+            $fecha = Carbon::now()->subMonths($i);
+            $startDate = $fecha->copy()->startOfMonth();
+            $endDate = $fecha->copy()->endOfMonth();
+
+            // ============================================
+            // INGRESOS DEL MES
+            // ============================================
+            
+            // ✅ CORREGIDO: usar check_out y estados correctos
             $ingresosHabitaciones = Booking::whereHas('room', function($query) use ($subBranchId) {
                     $query->where('sub_branch_id', $subBranchId);
                 })
-                ->whereIn('status', ['finished', 'active'])
-                ->whereBetween('check_in', [$startDate, $endDate])
+                ->whereIn('status', [
+                    Booking::STATUS_CHECKED_OUT,
+                    Booking::STATUS_CHECKED_IN
+                ])
+                ->whereBetween('check_out', [$startDate, $endDate])  // ✅ check_out
                 ->sum('room_subtotal');
 
-            // Ingresos por productos
             $ingresosProductos = BookingConsumption::whereHas('booking.room', function($query) use ($subBranchId) {
                     $query->where('sub_branch_id', $subBranchId);
                 })
@@ -571,223 +864,86 @@ class ReportController extends Controller{
 
             $ingresoBruto = $ingresosHabitaciones + $ingresosProductos;
 
-            // EGRESOS
-            // Egresos por movimientos (compras/gastos)
-            $egresosMovimientos = Movement::where('movement_type', 'egreso')
+            // ============================================
+            // EGRESOS DEL MES
+            // ============================================
+            
+            // ✅ CORREGIDO: Calcular subtotal y aplicar IGV
+            $subTotalMovimientos = Movement::where('movement_type', 'egreso')
                 ->where('sub_branch_id', $subBranchId)
                 ->whereBetween('date', [$startDate, $endDate])
                 ->join('movement_details', 'movements.id', '=', 'movement_details.movement_id')
                 ->sum('movement_details.total_price');
+            
+            // Aplicar IGV del 18%
+            $egresosMovimientos = $subTotalMovimientos * 1.18;
 
-            // Egresos por pagos al personal
+            // ✅ CORREGIDO: Estado 'pagado' en lugar de 'completado'
             $egresosPersonal = PagoPersonal::where('sub_branch_id', $subBranchId)
                 ->whereBetween('fecha_pago', [$startDate, $endDate])
-                ->where('estado', 'completado')
+                ->where('estado', 'pagado')  // ✅ CAMBIADO
                 ->sum('monto');
 
             $egresosTotales = $egresosMovimientos + $egresosPersonal;
             $ingresoNeto = $ingresoBruto - $egresosTotales;
 
-            // Métricas adicionales
-            $margenGanancia = $ingresoBruto > 0 ? round(($ingresoNeto / $ingresoBruto) * 100, 2) : 0;
-            $porcentajeEgresos = $ingresoBruto > 0 ? round(($egresosTotales / $ingresoBruto) * 100, 2) : 0;
-
-            return response()->json([
-                'success' => true,
-                'data' => [
-                    'ingreso_neto' => $ingresoNeto,
-                    'ingreso_bruto' => $ingresoBruto,
-                    'egresos_totales' => $egresosTotales,
-                    'ingresos_habitaciones' => $ingresosHabitaciones,
-                    'ingresos_productos' => $ingresosProductos,
-                    'egresos_movimientos' => $egresosMovimientos,
-                    'egresos_personal' => $egresosPersonal,
-                    'margen_ganancia' => $margenGanancia,
-                    'porcentaje_egresos' => $porcentajeEgresos,
-                    'periodo' => [
-                        'month' => $month,
-                        'year' => $year,
-                        'month_name' => Carbon::create($year, $month, 1)->locale('es')->monthName,
-                        'start_date' => $startDate->toDateString(),
-                        'end_date' => $endDate->toDateString()
-                    ]
+            $datos[] = [
+                'mes' => $fecha->format('Y-m'),
+                'mes_nombre' => ucfirst($fecha->locale('es')->monthName),  // ✅ Primera letra mayúscula
+                'anio' => (int) $fecha->year,
+                'ingreso_bruto' => (float) $ingresoBruto,
+                'egresos_totales' => (float) $egresosTotales,
+                'ingreso_neto' => (float) $ingresoNeto,
+                'margen_ganancia' => $ingresoBruto > 0 
+                    ? round(($ingresoNeto / $ingresoBruto) * 100, 2) 
+                    : 0,
+                // ✅ NUEVO: Desglose adicional para gráficas más detalladas
+                'desglose' => [
+                    'ingresos_habitaciones' => (float) $ingresosHabitaciones,
+                    'ingresos_productos' => (float) $ingresosProductos,
+                    'egresos_movimientos' => (float) $egresosMovimientos,
+                    'egresos_personal' => (float) $egresosPersonal
                 ]
-            ]);
-
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Error cargando ingreso neto: ' . $e->getMessage()
-            ], 500);
+            ];
         }
+
+        return response()->json([
+            'success' => true,
+            'data' => $datos
+        ]);
+
+    } catch (\Exception $e) {
+        \Log::error('Error en ingresoNetoComparativa: ' . $e->getMessage());
+        
+        return response()->json([
+            'success' => false,
+            'message' => 'Error cargando comparativa de ingreso neto'
+        ], 500);
     }
-
-    // 📊 INGRESO NETO - GRÁFICA COMPARATIVA
-    public function ingresoNetoGrafica(Request $request)
-    {
-        try {
-            $month = $request->input('month', now()->month);
-            $year = $request->input('year', now()->year);
-            $subBranchId = Auth::user()->sub_branch_id;
-
-            $startDate = Carbon::create($year, $month, 1)->startOfMonth();
-            $endDate = Carbon::create($year, $month, 1)->endOfMonth();
-
-            // Obtener datos por día para el mes actual
-            $datos = [];
-            $diasEnMes = $startDate->daysInMonth;
-
-            for ($dia = 1; $dia <= $diasEnMes; $dia++) {
-                $fechaActual = Carbon::create($year, $month, $dia);
-                
-                // Ingresos del día
-                $ingresosHabitacionesDia = Booking::whereHas('room', function($query) use ($subBranchId) {
-                        $query->where('sub_branch_id', $subBranchId);
-                    })
-                    ->whereIn('status', ['finished', 'active'])
-                    ->whereDate('check_in', $fechaActual)
-                    ->sum('room_subtotal');
-
-                $ingresosProductosDia = BookingConsumption::whereHas('booking.room', function($query) use ($subBranchId) {
-                        $query->where('sub_branch_id', $subBranchId);
-                    })
-                    ->whereDate('consumed_at', $fechaActual)
-                    ->sum('total_price');
-
-                $ingresosDia = $ingresosHabitacionesDia + $ingresosProductosDia;
-
-                // Egresos del día
-                $egresosMovimientosDia = Movement::where('movement_type', 'egreso')
-                    ->where('sub_branch_id', $subBranchId)
-                    ->whereDate('date', $fechaActual)
-                    ->join('movement_details', 'movements.id', '=', 'movement_details.movement_id')
-                    ->sum('movement_details.total_price');
-
-                $egresosPersonalDia = PagoPersonal::where('sub_branch_id', $subBranchId)
-                    ->whereDate('fecha_pago', $fechaActual)
-                    ->where('estado', 'completado')
-                    ->sum('monto');
-
-                $egresosDia = $egresosMovimientosDia + $egresosPersonalDia;
-                $ingresoNetoDia = $ingresosDia - $egresosDia;
-
-                $datos[] = [
-                    'dia' => $fechaActual->toDateString(),
-                    'dia_numero' => $dia,
-                    'ingresos' => $ingresosDia,
-                    'egresos' => $egresosDia,
-                    'ingreso_neto' => $ingresoNetoDia,
-                    'ingresos_habitaciones' => $ingresosHabitacionesDia,
-                    'ingresos_productos' => $ingresosProductosDia,
-                    'egresos_movimientos' => $egresosMovimientosDia,
-                    'egresos_personal' => $egresosPersonalDia
-                ];
-            }
-
-            return response()->json([
-                'success' => true,
-                'data' => $datos,
-                'periodo' => [
-                    'month' => $month,
-                    'year' => $year,
-                    'month_name' => Carbon::create($year, $month, 1)->locale('es')->monthName,
-                    'start_date' => $startDate->toDateString(),
-                    'end_date' => $endDate->toDateString()
-                ]
-            ]);
-
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Error cargando gráfica de ingreso neto: ' . $e->getMessage()
-            ], 500);
-        }
-    }
-
-    // 📈 INGRESO NETO - COMPARATIVA MENSUAL (ÚLTIMOS 6 MESES)
-    public function ingresoNetoComparativa(Request $request)
-    {
-        try {
-            $subBranchId = Auth::user()->sub_branch_id;
-            
-            $datos = [];
-            for ($i = 5; $i >= 0; $i--) {
-                $fecha = Carbon::now()->subMonths($i);
-                $startDate = $fecha->copy()->startOfMonth();
-                $endDate = $fecha->copy()->endOfMonth();
-                
-                // Ingresos del mes
-                $ingresosHabitaciones = Booking::whereHas('room', function($query) use ($subBranchId) {
-                        $query->where('sub_branch_id', $subBranchId);
-                    })
-                    ->whereIn('status', ['finished', 'active'])
-                    ->whereBetween('check_in', [$startDate, $endDate])
-                    ->sum('room_subtotal');
-
-                $ingresosProductos = BookingConsumption::whereHas('booking.room', function($query) use ($subBranchId) {
-                        $query->where('sub_branch_id', $subBranchId);
-                    })
-                    ->whereBetween('consumed_at', [$startDate, $endDate])
-                    ->sum('total_price');
-
-                $ingresoBruto = $ingresosHabitaciones + $ingresosProductos;
-
-                // Egresos del mes
-                $egresosMovimientos = Movement::where('movement_type', 'egreso')
-                    ->where('sub_branch_id', $subBranchId)
-                    ->whereBetween('date', [$startDate, $endDate])
-                    ->join('movement_details', 'movements.id', '=', 'movement_details.movement_id')
-                    ->sum('movement_details.total_price');
-
-                $egresosPersonal = PagoPersonal::where('sub_branch_id', $subBranchId)
-                    ->whereBetween('fecha_pago', [$startDate, $endDate])
-                    ->where('estado', 'completado')
-                    ->sum('monto');
-
-                $egresosTotales = $egresosMovimientos + $egresosPersonal;
-                $ingresoNeto = $ingresoBruto - $egresosTotales;
-
-                $datos[] = [
-                    'mes' => $fecha->format('Y-m'),
-                    'mes_nombre' => $fecha->locale('es')->monthName,
-                    'anio' => $fecha->year,
-                    'ingreso_bruto' => $ingresoBruto,
-                    'egresos_totales' => $egresosTotales,
-                    'ingreso_neto' => $ingresoNeto,
-                    'margen_ganancia' => $ingresoBruto > 0 ? round(($ingresoNeto / $ingresoBruto) * 100, 2) : 0
-                ];
-            }
-
-            return response()->json([
-                'success' => true,
-                'data' => $datos
-            ]);
-
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Error cargando comparativa de ingreso neto: ' . $e->getMessage()
-            ], 500);
-        }
-    }
+}
 
     // 💰 INGRESO NETO - DISTRIBUCIÓN
-    public function ingresoNetoDistribucion(Request $request)
-    {
+    public function ingresoNetoDistribucion(Request $request){
         try {
             $month = $request->input('month', now()->month);
             $year = $request->input('year', now()->year);
             $subBranchId = Auth::user()->sub_branch_id;
-
+            
             $startDate = Carbon::create($year, $month, 1)->startOfMonth();
             $endDate = Carbon::create($year, $month, 1)->endOfMonth();
 
-            // Ingresos
+            // ============================================
+            // INGRESOS
+            // ============================================
+            
             $ingresosHabitaciones = Booking::whereHas('room', function($query) use ($subBranchId) {
                     $query->where('sub_branch_id', $subBranchId);
                 })
-                ->whereIn('status', ['finished', 'active'])
-                ->whereBetween('check_in', [$startDate, $endDate])
+                ->whereIn('status', [
+                    Booking::STATUS_CHECKED_OUT,
+                    Booking::STATUS_CHECKED_IN
+                ])
+                ->whereBetween('check_out', [$startDate, $endDate])
                 ->sum('room_subtotal');
 
             $ingresosProductos = BookingConsumption::whereHas('booking.room', function($query) use ($subBranchId) {
@@ -796,18 +952,29 @@ class ReportController extends Controller{
                 ->whereBetween('consumed_at', [$startDate, $endDate])
                 ->sum('total_price');
 
-            // Egresos
-            $egresosMovimientos = Movement::where('movement_type', 'egreso')
+            // ============================================
+            // EGRESOS
+            // ============================================
+            
+            // Egresos operativos
+            $subTotalMovimientos = Movement::where('movement_type', 'egreso')
                 ->where('sub_branch_id', $subBranchId)
                 ->whereBetween('date', [$startDate, $endDate])
                 ->join('movement_details', 'movements.id', '=', 'movement_details.movement_id')
                 ->sum('movement_details.total_price');
+            
+            $egresosMovimientos = $subTotalMovimientos * 1.18;
 
+            // ✅ CORREGIDO: Estado 'pagado' en lugar de 'completado'
             $egresosPersonal = PagoPersonal::where('sub_branch_id', $subBranchId)
                 ->whereBetween('fecha_pago', [$startDate, $endDate])
-                ->where('estado', 'completado')
+                ->where('estado', 'pagado')  // ← CAMBIO AQUÍ
                 ->sum('monto');
 
+            // ============================================
+            // CÁLCULOS FINALES
+            // ============================================
+            
             $ingresoBruto = $ingresosHabitaciones + $ingresosProductos;
             $egresosTotales = $egresosMovimientos + $egresosPersonal;
             $ingresoNeto = $ingresoBruto - $egresosTotales;
@@ -815,21 +982,21 @@ class ReportController extends Controller{
             $distribucion = [
                 [
                     'categoria' => 'Ingreso Bruto',
-                    'valor' => $ingresoBruto,
+                    'valor' => (float) $ingresoBruto,
                     'tipo' => 'ingreso',
                     'color' => '#10B981',
                     'icono' => 'pi pi-arrow-up'
                 ],
                 [
                     'categoria' => 'Egresos Totales',
-                    'valor' => $egresosTotales,
+                    'valor' => (float) $egresosTotales,
                     'tipo' => 'egreso',
                     'color' => '#EF4444',
                     'icono' => 'pi pi-arrow-down'
                 ],
                 [
                     'categoria' => 'Ingreso Neto',
-                    'valor' => $ingresoNeto,
+                    'valor' => (float) $ingresoNeto,
                     'tipo' => 'neto',
                     'color' => $ingresoNeto >= 0 ? '#3B82F6' : '#F59E0B',
                     'icono' => $ingresoNeto >= 0 ? 'pi pi-chart-line' : 'pi pi-exclamation-triangle'
@@ -840,22 +1007,38 @@ class ReportController extends Controller{
                 'success' => true,
                 'data' => $distribucion,
                 'resumen' => [
-                    'ingreso_bruto' => $ingresoBruto,
-                    'egresos_totales' => $egresosTotales,
-                    'ingreso_neto' => $ingresoNeto,
-                    'margen_ganancia' => $ingresoBruto > 0 ? round(($ingresoNeto / $ingresoBruto) * 100, 2) : 0
+                    'ingreso_bruto' => (float) $ingresoBruto,
+                    'egresos_totales' => (float) $egresosTotales,
+                    'ingreso_neto' => (float) $ingresoNeto,
+                    'margen_ganancia' => $ingresoBruto > 0 
+                        ? round(($ingresoNeto / $ingresoBruto) * 100, 2) 
+                        : 0
+                ],
+                'desglose_egresos' => [
+                    'movimientos_subtotal' => (float) $subTotalMovimientos,
+                    'movimientos_igv' => (float) ($subTotalMovimientos * 0.18),
+                    'movimientos_total' => (float) $egresosMovimientos,
+                    'personal' => (float) $egresosPersonal,
+                    'total' => (float) $egresosTotales
+                ],
+                'desglose_ingresos' => [
+                    'habitaciones' => (float) $ingresosHabitaciones,
+                    'productos' => (float) $ingresosProductos,
+                    'total' => (float) $ingresoBruto
                 ],
                 'periodo' => [
-                    'month' => $month,
-                    'year' => $year,
-                    'month_name' => Carbon::create($year, $month, 1)->locale('es')->monthName
+                    'month' => (int) $month,
+                    'year' => (int) $year,
+                    'month_name' => ucfirst(Carbon::create($year, $month, 1)->locale('es')->monthName)
                 ]
             ]);
 
         } catch (\Exception $e) {
+            \Log::error('Error en ingresoNetoDistribucion: ' . $e->getMessage());
+            
             return response()->json([
                 'success' => false,
-                'message' => 'Error cargando distribución de ingreso neto: ' . $e->getMessage()
+                'message' => 'Error cargando distribución de ingreso neto'
             ], 500);
         }
     }
@@ -1346,38 +1529,41 @@ class ReportController extends Controller{
             ], 500);
         }
     }
+    public function productosMejorRendimiento(Request $request)
+{
+    try {
+        $filtros = $this->getFiltros($request);
 
-    	// Productos con mejor rendimiento (combinación de unidades e ingresos) - CORREGIDO
-    public function productosMejorRendimiento(Request $request){
-        try {
-            $filtros = $this->getFiltros($request);
-            
-            $productos = BookingConsumption::whereHas('booking.room', function($query) use ($filtros) {
-                    $query->where('sub_branch_id', $filtros['subBranchId']);
-                })
-                ->whereBetween('consumed_at', [$filtros['startDate'], $filtros['endDate']])
-                ->join('products', 'booking_consumptions.product_id', '=', 'products.id')
-                ->groupBy('products.id', 'products.name')
-                ->select(
-                    'products.name',
-                    DB::raw('SUM(booking_consumptions.quantity) as unidades_vendidas'),
-                    DB::raw('SUM(booking_consumptions.total_price) as ingreso_generado'),
-                    DB::raw('(SUM(booking_consumptions.total_price) / NULLIF(SUM(booking_consumptions.quantity), 0)) as precio_promedio')
-                )
-                ->havingRaw('SUM(booking_consumptions.quantity) > 0') // CORREGIDO: usar la función directamente en HAVING
-                ->orderByDesc('ingreso_generado')
-                ->limit(15)
-                ->get();
+        $productos = BookingConsumption::join('products', 'booking_consumptions.product_id', '=', 'products.id')
+            ->join('bookings', 'booking_consumptions.booking_id', '=', 'bookings.id')
+            ->join('rooms', 'bookings.room_id', '=', 'rooms.id')
+            ->where('rooms.sub_branch_id', $filtros['subBranchId'])
+            ->whereBetween('booking_consumptions.consumed_at', [
+                $filtros['startDate'],
+                $filtros['endDate']
+            ])
+            ->groupBy('products.id', 'products.name')
+            ->select(
+                'products.name',
+                DB::raw('SUM(booking_consumptions.quantity) as unidades_vendidas'),
+                DB::raw('SUM(booking_consumptions.total_price) as ingreso_generado'),
+                DB::raw('SUM(booking_consumptions.total_price) / NULLIF(SUM(booking_consumptions.quantity), 0) as precio_promedio')
+            )
+            ->havingRaw('SUM(booking_consumptions.quantity) > 0')
+            ->orderByDesc(DB::raw('SUM(booking_consumptions.total_price)'))
+            ->limit(15)
+            ->get();
 
-            return response()->json($productos);
+        return response()->json($productos);
 
-        } catch (\Exception $e) {
-            return response()->json([
-                'error' => 'Error al cargar productos con mejor rendimiento',
-                'message' => $e->getMessage()
-            ], 500);
-        }
+    } catch (\Exception $e) {
+        return response()->json([
+            'error' => 'Error al cargar productos con mejor rendimiento',
+            'message' => $e->getMessage()
+        ], 500);
     }
+}
+
     // Método para obtener productos más rentables (combinando unidades e ingresos)
     public function productosMasRentables(Request $request){
         try {
@@ -1439,43 +1625,60 @@ class ReportController extends Controller{
             ], 500);
         }
     }
-
-
-
-
-
-        // Productos menos vendidos
-    public function productosMenosVendidos(Request $request){
-        try {
-            $filtros = $this->getFiltros($request);
-            
-            $productos = BookingConsumption::whereHas('booking.room', function($query) use ($filtros) {
-                    $query->where('sub_branch_id', $filtros['subBranchId']);
-                })
-                ->whereBetween('consumed_at', [$filtros['startDate'], $filtros['endDate']])
-                ->join('products', 'booking_consumptions.product_id', '=', 'products.id')
-                ->groupBy('products.id', 'products.name')
-                ->select(
-                    'products.id',
-                    'products.name',
-                    DB::raw('SUM(booking_consumptions.quantity) as unidades_vendidas'),
-                    DB::raw('SUM(booking_consumptions.total_price) as ingreso_generado')
-                )
-                ->orderBy('unidades_vendidas')
-                ->limit(10)
-                ->get();
-
-            return response()->json($productos);
-
-        } catch (\Exception $e) {
+    public function productosMenosVendidos(Request $request)
+{
+    try {
+        $filtros = $this->getFiltros($request);
+        
+        // Validar que existan los filtros necesarios
+        if (!isset($filtros['subBranchId']) || !isset($filtros['startDate']) || !isset($filtros['endDate'])) {
             return response()->json([
-                'error' => 'Error al cargar productos menos vendidos',
-                'message' => $e->getMessage()
-            ], 500);
+                'error' => 'Filtros incompletos',
+                'message' => 'Se requieren subBranchId, startDate y endDate'
+            ], 400);
         }
+        
+        $productos = Product::select('products.id', 'products.name')
+            ->withSum([
+                'consumptions as unidades_vendidas' => function($query) use ($filtros) {
+                    $query->whereHas('booking.room', function($q) use ($filtros) {
+                        $q->where('sub_branch_id', $filtros['subBranchId']);
+                    })
+                    ->whereBetween('consumed_at', [$filtros['startDate'], $filtros['endDate']]);
+                }
+            ], 'quantity')
+            ->withSum([
+                'consumptions as ingreso_generado' => function($query) use ($filtros) {
+                    $query->whereHas('booking.room', function($q) use ($filtros) {
+                        $q->where('sub_branch_id', $filtros['subBranchId']);
+                    })
+                    ->whereBetween('consumed_at', [$filtros['startDate'], $filtros['endDate']]);
+                }
+            ], 'total_price')
+            ->get()
+            ->filter(function($producto) {
+                return $producto->unidades_vendidas > 0;
+            })
+            ->sortBy('unidades_vendidas')
+            ->take(10)
+            ->values();
+        
+        return response()->json([
+            'success' => true,
+            'data' => $productos
+        ]);
+        
+    } catch (\Exception $e) {
+        \Log::error('Error en productosMenosVendidos: ' . $e->getMessage(), [
+            'trace' => $e->getTraceAsString()
+        ]);
+        
+        return response()->json([
+            'error' => 'Error al cargar productos menos vendidos',
+            'message' => $e->getMessage()
+        ], 500);
     }
-
-    // Gráfica de productos menos vendidos
+}
     public function productosMenosVendidosGrafica(Request $request){
         try {
             $filtros = $this->getFiltros($request);
@@ -1528,32 +1731,56 @@ class ReportController extends Controller{
     }
 
     // Productos sin ventas (stock muerto)
-    public function productosSinVentas(Request $request){
-        try {
-            $filtros = $this->getFiltros($request);
-            
-            // Productos que existen pero no tienen ventas en el período
-            $productosSinVentas = Product::whereDoesntHave('consumptions', function($query) use ($filtros) {
-                    $query->whereHas('booking.room', function($q) use ($filtros) {
-                            $q->where('sub_branch_id', $filtros['subBranchId']);
-                        })
-                        ->whereBetween('consumed_at', [$filtros['startDate'], $filtros['endDate']]);
-                })
-                ->select('id', 'name', 'sale_price')
-                ->orderBy('name')
-                ->limit(20)
-                ->get();
-
-            return response()->json($productosSinVentas);
-
-        } catch (\Exception $e) {
+    public function productosSinVentas(Request $request)
+{
+    try {
+        $filtros = $this->getFiltros($request);
+        
+        // Validar que existan los filtros necesarios
+        if (!isset($filtros['subBranchId']) || !isset($filtros['startDate']) || !isset($filtros['endDate'])) {
             return response()->json([
-                'error' => 'Error al cargar productos sin ventas',
-                'message' => $e->getMessage()
-            ], 500);
+                'error' => 'Filtros incompletos',
+                'message' => 'Se requieren subBranchId, startDate y endDate'
+            ], 400);
         }
+        
+        // Productos que existen pero no tienen ventas en el período
+        $productosSinVentas = Product::whereDoesntHave('consumptions', function($query) use ($filtros) {
+                $query->whereHas('booking.room', function($q) use ($filtros) {
+                    $q->where('sub_branch_id', $filtros['subBranchId']);
+                })
+                ->whereBetween('consumed_at', [$filtros['startDate'], $filtros['endDate']]);
+            })
+            ->where('is_active', true) // ✅ Solo productos activos
+            ->select('id', 'name', 'sale_price')
+            ->orderBy('name', 'ASC')
+            ->limit(20)
+            ->get()
+            ->map(function($producto) {
+                return [
+                    'id' => $producto->id,
+                    'name' => $producto->name,
+                    'sale_price' => number_format($producto->sale_price, 2, '.', ''),
+                ];
+            });
+        
+        return response()->json([
+            'success' => true,
+            'data' => $productosSinVentas,
+            'total' => $productosSinVentas->count()
+        ]);
+        
+    } catch (\Exception $e) {
+        \Log::error('Error en productosSinVentas: ' . $e->getMessage(), [
+            'trace' => $e->getTraceAsString()
+        ]);
+        
+        return response()->json([
+            'error' => 'Error al cargar productos sin ventas',
+            'message' => $e->getMessage()
+        ], 500);
     }
-
+}
     // Análisis de productos con bajo rendimiento
     public function productosBajoRendimiento(Request $request){
         try {
@@ -1684,59 +1911,83 @@ class ReportController extends Controller{
     }
 
     // Método para comparativa con datos estructurados para gráficas
-    public function comparativaVentasGrafica(Request $request){
-        try {
-            $filtros = $this->getFiltros($request);
-            
-            // Obtener top 5 más vendidos
-            $masVendidos = BookingConsumption::whereHas('booking.room', function($query) use ($filtros) {
-                    $query->where('sub_branch_id', $filtros['subBranchId']);
-                })
-                ->whereBetween('consumed_at', [$filtros['startDate'], $filtros['endDate']])
-                ->join('products', 'booking_consumptions.product_id', '=', 'products.id')
-                ->groupBy('products.id', 'products.name')
-                ->select(
-                    'products.name',
-                    DB::raw('SUM(booking_consumptions.quantity) as unidades_vendidas')
-                )
-                ->orderByDesc('unidades_vendidas')
-                ->limit(5)
-                ->get();
-
-            // Obtener top 5 menos vendidos (con al menos 1 venta)
-            $menosVendidos = BookingConsumption::whereHas('booking.room', function($query) use ($filtros) {
-                    $query->where('sub_branch_id', $filtros['subBranchId']);
-                })
-                ->whereBetween('consumed_at', [$filtros['startDate'], $filtros['endDate']])
-                ->join('products', 'booking_consumptions.product_id', '=', 'products.id')
-                ->groupBy('products.id', 'products.name')
-                ->select(
-                    'products.name',
-                    DB::raw('SUM(booking_consumptions.quantity) as unidades_vendidas')
-                )
-                ->havingRaw('SUM(booking_consumptions.quantity) > 0')
-                ->orderBy('unidades_vendidas')
-                ->limit(5)
-                ->get();
-
+    public function comparativaVentasGrafica(Request $request)
+{
+    try {
+        $filtros = $this->getFiltros($request);
+        
+        if (!isset($filtros['subBranchId']) || !isset($filtros['startDate']) || !isset($filtros['endDate'])) {
             return response()->json([
+                'error' => 'Filtros incompletos',
+                'message' => 'Se requieren subBranchId, startDate y endDate'
+            ], 400);
+        }
+        
+        // Query base reutilizable
+        $baseQuery = function() use ($filtros) {
+            return BookingConsumption::with('product:id,name')
+                ->whereHas('booking.room', function($query) use ($filtros) {
+                    $query->where('sub_branch_id', $filtros['subBranchId']);
+                })
+                ->whereBetween('consumed_at', [$filtros['startDate'], $filtros['endDate']])
+                ->select('product_id', DB::raw('SUM(quantity) as unidades_vendidas'))
+                ->groupBy('product_id');
+        };
+        
+        // Top 5 más vendidos
+        $masVendidos = $baseQuery()
+            ->orderByDesc('unidades_vendidas')
+            ->limit(5)
+            ->get()
+            ->map(function($item) {
+                return [
+                    'name' => $item->product->name,
+                    'unidades_vendidas' => (int) $item->unidades_vendidas
+                ];
+            });
+        
+        // Top 5 menos vendidos
+        $menosVendidos = $baseQuery()
+            ->havingRaw('SUM(quantity) > 0')
+            ->orderBy('unidades_vendidas', 'ASC')
+            ->limit(5)
+            ->get()
+            ->map(function($item) {
+                return [
+                    'name' => $item->product->name,
+                    'unidades_vendidas' => (int) $item->unidades_vendidas
+                ];
+            });
+        
+        return response()->json([
+            'success' => true,
+            'data' => [
                 'mas_vendidos' => [
-                    'labels' => $masVendidos->pluck('name'),
-                    'data' => $masVendidos->pluck('unidades_vendidas')
+                    'labels' => $masVendidos->pluck('name')->toArray(),
+                    'data' => $masVendidos->pluck('unidades_vendidas')->toArray()
                 ],
                 'menos_vendidos' => [
-                    'labels' => $menosVendidos->pluck('name'),
-                    'data' => $menosVendidos->pluck('unidades_vendidas')
+                    'labels' => $menosVendidos->pluck('name')->toArray(),
+                    'data' => $menosVendidos->pluck('unidades_vendidas')->toArray()
                 ]
-            ]);
-
-        } catch (\Exception $e) {
-            return response()->json([
-                'error' => 'Error al cargar comparativa de ventas para gráfica',
-                'message' => $e->getMessage()
-            ], 500);
-        }
+            ],
+            'periodo' => [
+                'desde' => $filtros['startDate'],
+                'hasta' => $filtros['endDate']
+            ]
+        ]);
+        
+    } catch (\Exception $e) {
+        \Log::error('Error en comparativaVentasGrafica: ' . $e->getMessage(), [
+            'trace' => $e->getTraceAsString()
+        ]);
+        
+        return response()->json([
+            'error' => 'Error al cargar comparativa de ventas para gráfica',
+            'message' => $e->getMessage()
+        ], 500);
     }
+}
 
     // Método para análisis completo de rendimiento de productos
     public function analisisRendimientoProductos(Request $request){

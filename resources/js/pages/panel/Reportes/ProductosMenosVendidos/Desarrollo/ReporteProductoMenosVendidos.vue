@@ -104,11 +104,18 @@
           />
         </div>
         <Chart 
+          v-if="chartDataMenosVendidos.labels.length > 0"
           type="bar" 
           :data="chartDataMenosVendidos" 
           :options="chartOptionsBar" 
           class="h-80"
         />
+        <div v-else class="h-80 flex items-center justify-center bg-gray-50 rounded-lg">
+          <div class="text-center">
+            <i class="pi pi-chart-bar text-4xl text-gray-400 mb-2"></i>
+            <p class="text-gray-500">No hay datos disponibles</p>
+          </div>
+        </div>
       </div>
 
       <!-- Comparativa Más vs Menos Vendidos -->
@@ -117,11 +124,18 @@
           <h3 class="text-lg font-semibold">Comparativa: Más vs Menos Vendidos</h3>
         </div>
         <Chart 
+          v-if="chartDataComparativa.labels.length > 0"
           type="bar" 
           :data="chartDataComparativa" 
           :options="chartOptionsComparativa" 
           class="h-80"
         />
+        <div v-else class="h-80 flex items-center justify-center bg-gray-50 rounded-lg">
+          <div class="text-center">
+            <i class="pi pi-chart-line text-4xl text-gray-400 mb-2"></i>
+            <p class="text-gray-500">No hay datos disponibles</p>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -140,6 +154,12 @@
           :pageLinkSize="3"
           paginatorTemplate="FirstPageLink PrevPageLink PageLinks NextPageLink LastPageLink RowsPerPageDropdown"
         >
+          <template #empty>
+            <div class="text-center py-6">
+              <i class="pi pi-inbox text-4xl text-gray-400 mb-2"></i>
+              <p class="text-gray-500">No hay productos con ventas bajas</p>
+            </div>
+          </template>
           <Column field="name" header="Producto" sortable>
             <template #body="{ data }">
               <div class="flex items-center gap-2">
@@ -156,7 +176,7 @@
           <Column field="ingreso_generado" header="Ingresos" sortable>
             <template #body="{ data }">
               <span class="text-red-600 font-semibold">
-                S/ {{ data.ingreso_generado.toLocaleString('es-PE', { minimumFractionDigits: 2 }) }}
+                S/ {{ parseFloat(data.ingreso_generado).toLocaleString('es-PE', { minimumFractionDigits: 2 }) }}
               </span>
             </template>
           </Column>
@@ -179,6 +199,12 @@
           :pageLinkSize="3"
           paginatorTemplate="FirstPageLink PrevPageLink PageLinks NextPageLink LastPageLink RowsPerPageDropdown"
         >
+          <template #empty>
+            <div class="text-center py-6">
+              <i class="pi pi-check-circle text-4xl text-green-400 mb-2"></i>
+              <p class="text-gray-500">¡Excelente! Todos los productos tienen ventas</p>
+            </div>
+          </template>
           <Column field="name" header="Producto" sortable>
             <template #body="{ data }">
               <div class="flex items-center gap-2">
@@ -411,16 +437,28 @@ const cargarProductosMenosVendidos = async () => {
     };
 
     const response = await axios.get('/reports/menos-vendidos', { params });
-    productosMenosVendidos.value = response.data;
+    
+    // ✅ CORRECCIÓN: Manejar estructura {success, data}
+    const responseData = response.data.data || response.data;
+    productosMenosVendidos.value = Array.isArray(responseData) ? responseData : [];
     
     // Actualizar gráfica
-    chartDataMenosVendidos.value.labels = productosMenosVendidos.value.map(p => p.name);
-    chartDataMenosVendidos.value.datasets[0].data = productosMenosVendidos.value.map(p => p.unidades_vendidas);
+    if (productosMenosVendidos.value.length > 0) {
+      chartDataMenosVendidos.value.labels = productosMenosVendidos.value.map(p => p.name);
+      chartDataMenosVendidos.value.datasets[0].data = productosMenosVendidos.value.map(p => Number(p.unidades_vendidas));
 
-    // Calcular resumen
-    resumen.value.totalPocoVendidos = productosMenosVendidos.value.length;
-    resumen.value.unidadesMinimas = productosMenosVendidos.value.reduce((sum, p) => sum + p.unidades_vendidas, 0);
-    resumen.value.ingresosMinimos = productosMenosVendidos.value.reduce((sum, p) => sum + p.ingreso_generado, 0);
+      // Calcular resumen
+      resumen.value.totalPocoVendidos = productosMenosVendidos.value.length;
+      resumen.value.unidadesMinimas = productosMenosVendidos.value.reduce((sum, p) => sum + Number(p.unidades_vendidas), 0);
+      resumen.value.ingresosMinimos = productosMenosVendidos.value.reduce((sum, p) => sum + parseFloat(p.ingreso_generado), 0);
+    } else {
+      // Resetear si no hay datos
+      chartDataMenosVendidos.value.labels = [];
+      chartDataMenosVendidos.value.datasets[0].data = [];
+      resumen.value.totalPocoVendidos = 0;
+      resumen.value.unidadesMinimas = 0;
+      resumen.value.ingresosMinimos = 0;
+    }
 
   } catch (error) {
     console.error('Error cargando productos menos vendidos:', error);
@@ -442,11 +480,20 @@ const cargarProductosSinVentas = async () => {
     };
 
     const response = await axios.get('/reports/sin-ventas', { params });
-    productosSinVentas.value = response.data;
-    resumen.value.totalSinVentas = productosSinVentas.value.length;
+    
+    // ✅ CORRECCIÓN: Manejar estructura {success, data, total}
+    const responseData = response.data.data || response.data;
+    productosSinVentas.value = Array.isArray(responseData) ? responseData : [];
+    resumen.value.totalSinVentas = response.data.total || productosSinVentas.value.length;
 
   } catch (error) {
     console.error('Error cargando productos sin ventas:', error);
+    toast.add({ 
+      severity: 'error', 
+      summary: 'Error', 
+      detail: 'No se pudieron cargar los productos sin ventas', 
+      life: 3000 
+    });
   }
 };
 
@@ -459,15 +506,31 @@ const cargarComparativaVentas = async () => {
     };
 
     const response = await axios.get('/reports/comparativa-ventas-grafica', { params });
-    const data = response.data;
+    
+    // ✅ CORRECCIÓN: Acceder correctamente a data.data
+    const data = response.data.data || response.data;
 
-    // Preparar datos para gráfica comparativa
-    chartDataComparativa.value.labels = data.mas_vendidos.labels;
-    chartDataComparativa.value.datasets[0].data = data.mas_vendidos.data;
-    chartDataComparativa.value.datasets[1].data = data.menos_vendidos.data;
+    // Verificar que existan los datos
+    if (data && data.mas_vendidos && data.menos_vendidos) {
+      // Preparar datos para gráfica comparativa
+      chartDataComparativa.value.labels = data.mas_vendidos.labels || [];
+      chartDataComparativa.value.datasets[0].data = data.mas_vendidos.data || [];
+      chartDataComparativa.value.datasets[1].data = data.menos_vendidos.data || [];
+    } else {
+      // Resetear si no hay datos
+      chartDataComparativa.value.labels = [];
+      chartDataComparativa.value.datasets[0].data = [];
+      chartDataComparativa.value.datasets[1].data = [];
+    }
 
   } catch (error) {
     console.error('Error cargando comparativa de ventas:', error);
+    toast.add({ 
+      severity: 'error', 
+      summary: 'Error', 
+      detail: 'No se pudo cargar la comparativa de ventas', 
+      life: 3000 
+    });
   }
 };
 

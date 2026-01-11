@@ -23,161 +23,199 @@ use Illuminate\Support\Facades\Log;
 
 class BookingController extends Controller{
     public function store(StoreBookingRequest $request){
-        try {
-            DB::beginTransaction();
-            $validated = $request->validated();
-            $room = Room::findOrFail($validated['room_id']);
-            if ($room->status !== Room::STATUS_AVAILABLE) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'La habitación no está disponible. Estado actual: ' . $room->status
-                ], 422);
-            }
-            if ($room->hasActiveBooking()) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'La habitación ya tiene una reserva activa'
-                ], 422);
-            }
-            $rateType = RateType::findOrFail($validated['rate_type_id']);
-            $checkIn = now();
-            $checkOut = $this->calculateCheckOut($checkIn, $rateType->code, $validated['total_hours']);
-            
-            $roomSubtotal = 0;
-            $hoursPerUnit = 24;
-            switch($rateType->code) {
-                case 'hourly':
-                case 'hour':
-                    $hoursPerUnit = 1;
-                    break;
-                case 'daily':
-                case 'day':
-                    $hoursPerUnit = 24;
-                    break;
-                case 'half_day':
-                case '12hours':
-                    $hoursPerUnit = 12;
-                    break;
-                case '8hours':
-                    $hoursPerUnit = 8;
-                    break;
-                default:
-                    $hoursPerUnit = $rateType->hours ?? 24;
-            }
-            $units = $validated['total_hours'] / $hoursPerUnit;
-            $roomSubtotal = $validated['rate_per_hour'] * $units;
-            $productsSubtotal = 0;
-            $bookingCode = $this->generateBookingCode();
-            $booking = Booking::create([
-                'id' => Str::uuid(),
-                'booking_code' => $bookingCode,
-                'room_id' => $validated['room_id'],
-                'customers_id' => $validated['customers_id'],
-                'rate_type_id' => $validated['rate_type_id'],
-                'currency_id' => $validated['currency_id'],
-                'check_in' => $checkIn,
-                'check_out' => $checkOut,
-                'total_hours' => $validated['total_hours'],
-                'rate_per_hour' => $validated['rate_per_hour'],
-                'rate_per_unit' => $validated['rate_per_hour'],
-                'room_subtotal' => $roomSubtotal,
-                'products_subtotal' => 0,
-                'subtotal' => $roomSubtotal,
-                'tax_amount' => 0,
-                'discount_amount' => 0,
-                'total_amount' => $roomSubtotal,
-                'paid_amount' => 0,
-                'status' => Booking::STATUS_CONFIRMED,
-                'voucher_type' => $validated['voucher_type'] ?? 'ticket',
-                'sub_branch_id' => Auth::user()->sub_branch_id,
-                'created_by' => Auth::id(),
-            ]);
-            if (isset($validated['consumptions']) && count($validated['consumptions']) > 0) {
-                foreach ($validated['consumptions'] as $consumption) {
-                    $totalPrice = $consumption['quantity'] * $consumption['unit_price'];
-                    $booking->consumptions()->create([
-                        'id' => Str::uuid(),
-                        'product_id' => $consumption['product_id'],
-                        'quantity' => $consumption['quantity'],
-                        'unit_price' => $consumption['unit_price'],
-                        'total_price' => $totalPrice,
-                        'status' => BookingConsumption::STATUS_PAID,
-                        'consumed_at' => now(),
-                        'created_by' => Auth::id(),
-                    ]);
-                    $productsSubtotal += $totalPrice;
-                }
-                $booking->products_subtotal = $productsSubtotal;
-                $booking->subtotal = $roomSubtotal + $productsSubtotal;
-                $booking->total_amount = $booking->subtotal;
-                $booking->save();
-            }
-            $totalPaid = 0;
-            foreach ($validated['payments'] as $paymentData) {
-                if (isset($paymentData['cash_register_id'])) {
-                    $cashRegister = CashRegister::find($paymentData['cash_register_id']);
-                    if (!$cashRegister || !$cashRegister->isOpen()) {
-                        throw new \Exception('La caja especificada no está abierta');
-                    }
-                }
-                $paymentMethod = PaymentMethod::find($paymentData['payment_method_id']);
-                if ($paymentMethod && $paymentMethod->requires_reference && empty($paymentData['operation_number'])) {
-                    throw new \Exception("El método de pago {$paymentMethod->name} requiere un número de operación");
-                }
-                Payment::create([
-                    'id' => Str::uuid(),
-                    'payment_code' => $this->generatePaymentCode(),
-                    'booking_id' => $booking->id,
-                    'currency_id' => $validated['currency_id'],
-                    'amount' => $paymentData['amount'],
-                    'amount_base_currency' => $paymentData['amount'],
-                    'payment_method' => $paymentMethod->code ?? 'cash',
-                    'payment_method_id' => $paymentData['payment_method_id'],
-                    'cash_register_id' => $paymentData['cash_register_id'] ?? null,
-                    'operation_number' => $paymentData['operation_number'] ?? null,
-                    'payment_date' => now(),
-                    'status' => 'completed',
-                    'notes' => 'Pago inicial al check-in',
-                    'created_by' => Auth::id(),
-                ]);
-                $totalPaid += $paymentData['amount'];
-            }
-            $booking->paid_amount = $totalPaid;
-            $booking->save();
-            $booking->checkIn(Auth::id());
-            DB::commit();
-            return response()->json([
-                'success' => true,
-                'message' => '✅ Servicio iniciado. Habitación ocupada.',
-                'data' => [
-                    'booking' => $booking->fresh([
-                        'customer',
-                        'room',
-                        'rateType',
-                        'currency',
-                        'payments.paymentMethod',
-                        'consumptions.product'
-                    ]),
-                    'check_in' => $checkIn->toDateTimeString(),
-                    'check_out_scheduled' => $checkOut->toDateTimeString(),
-                    'total_paid' => $booking->paid_amount,
-                    'balance' => $booking->balance,
-                ]
-            ], 201);
-        } catch (\Exception $e) {
-            DB::rollBack();
-            
-            Log::error('Error al crear booking:', [
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
-            ]);
+    try {
+        DB::beginTransaction();
+        $validated = $request->validated();
+        $room = Room::findOrFail($validated['room_id']);
+        
+        if ($room->status !== Room::STATUS_AVAILABLE) {
             return response()->json([
                 'success' => false,
-                'message' => 'Error al iniciar servicio',
-                'error' => $e->getMessage()
-            ], 500);
+                'message' => 'La habitación no está disponible. Estado actual: ' . $room->status
+            ], 422);
         }
+        
+        if ($room->hasActiveBooking()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'La habitación ya tiene una reserva activa'
+            ], 422);
+        }
+        
+        $rateType = RateType::findOrFail($validated['rate_type_id']);
+        $checkIn = now();
+        
+        // ============================================================
+        // CALCULAR QUANTITY Y TOTAL_HOURS
+        // ============================================================
+        if (isset($validated['quantity'])) {
+            // Si viene quantity, úsalo directamente
+            $quantity = $validated['quantity'];
+            $totalHours = $quantity * $rateType->duration_hours;
+        } else {
+            // Si viene total_hours (legacy), calcula quantity
+            $totalHours = $validated['total_hours'];
+            $quantity = ceil($totalHours / $rateType->duration_hours);
+        }
+        
+        $checkOut = $checkIn->copy()->addHours($totalHours);
+        
+        // ============================================================
+        // CÁLCULO: room_subtotal = precio × quantity
+        // ============================================================
+        $roomSubtotal = $validated['rate_per_hour'] * $quantity;
+        
+        $productsSubtotal = 0;
+        $bookingCode = $this->generateBookingCode();
+        
+        // ============================================================
+        // CREAR BOOKING
+        // ============================================================
+        $booking = Booking::create([
+            'id' => Str::uuid(),
+            'booking_code' => $bookingCode,
+            'room_id' => $validated['room_id'],
+            'customers_id' => $validated['customers_id'],
+            'rate_type_id' => $validated['rate_type_id'],
+            'currency_id' => $validated['currency_id'],
+            'check_in' => $checkIn,
+            'check_out' => $checkOut,
+            'quantity' => $quantity,
+            'total_hours' => $totalHours,
+            'rate_per_hour' => $validated['rate_per_hour'],
+            'rate_per_unit' => $validated['rate_per_hour'],
+            'room_subtotal' => $roomSubtotal,
+            'products_subtotal' => 0,
+            'subtotal' => $roomSubtotal,
+            'tax_amount' => 0,
+            'discount_amount' => 0,
+            'total_amount' => $roomSubtotal,
+            'paid_amount' => 0,
+            'status' => Booking::STATUS_CONFIRMED,
+            'voucher_type' => $validated['voucher_type'] ?? 'ticket',
+            'sub_branch_id' => Auth::user()->sub_branch_id,
+            'created_by' => Auth::id(),
+        ]);
+        
+        // ============================================================
+        // AGREGAR PRODUCTOS/CONSUMOS
+        // ============================================================
+        if (isset($validated['consumptions']) && count($validated['consumptions']) > 0) {
+            foreach ($validated['consumptions'] as $consumption) {
+                $totalPrice = $consumption['quantity'] * $consumption['unit_price'];
+                
+                $booking->consumptions()->create([
+                    'id' => Str::uuid(),
+                    'product_id' => $consumption['product_id'],
+                    'quantity' => $consumption['quantity'],
+                    'unit_price' => $consumption['unit_price'],
+                    'total_price' => $totalPrice,
+                    'status' => BookingConsumption::STATUS_PAID,
+                    'consumed_at' => now(),
+                    'created_by' => Auth::id(),
+                ]);
+                
+                $productsSubtotal += $totalPrice;
+            }
+            
+            // Actualizar totales con productos
+            $booking->products_subtotal = $productsSubtotal;
+            $booking->subtotal = $roomSubtotal + $productsSubtotal;
+            $booking->total_amount = $booking->subtotal;
+            $booking->save();
+        }
+        
+        // ============================================================
+        // REGISTRAR PAGOS
+        // ============================================================
+        $totalPaid = 0;
+        foreach ($validated['payments'] as $paymentData) {
+            if (isset($paymentData['cash_register_id'])) {
+                $cashRegister = CashRegister::find($paymentData['cash_register_id']);
+                if (!$cashRegister || !$cashRegister->isOpen()) {
+                    throw new \Exception('La caja especificada no está abierta');
+                }
+            }
+            
+            $paymentMethod = PaymentMethod::find($paymentData['payment_method_id']);
+            if ($paymentMethod && $paymentMethod->requires_reference && empty($paymentData['operation_number'])) {
+                throw new \Exception("El método de pago {$paymentMethod->name} requiere un número de operación");
+            }
+            
+            Payment::create([
+                'id' => Str::uuid(),
+                'payment_code' => $this->generatePaymentCode(),
+                'booking_id' => $booking->id,
+                'currency_id' => $validated['currency_id'],
+                'amount' => $paymentData['amount'],
+                'amount_base_currency' => $paymentData['amount'],
+                'payment_method' => $paymentMethod->code ?? 'cash',
+                'payment_method_id' => $paymentData['payment_method_id'],
+                'cash_register_id' => $paymentData['cash_register_id'] ?? null,
+                'operation_number' => $paymentData['operation_number'] ?? null,
+                'payment_date' => now(),
+                'status' => 'completed',
+                'notes' => 'Pago inicial al check-in',
+                'created_by' => Auth::id(),
+            ]);
+            
+            $totalPaid += $paymentData['amount'];
+        }
+        
+        // Actualizar monto pagado
+        $booking->paid_amount = $totalPaid;
+        $booking->save();
+        
+        // Hacer check-in
+        $booking->checkIn(Auth::id());
+        
+        DB::commit();
+        
+        return response()->json([
+            'success' => true,
+            'message' => '✅ Servicio iniciado. Habitación ocupada.',
+            'data' => [
+                'booking' => $booking->fresh([
+                    'customer',
+                    'room',
+                    'rateType',
+                    'currency',
+                    'payments.paymentMethod',
+                    'consumptions.product'
+                ]),
+                'check_in' => $checkIn->toDateTimeString(),
+                'check_out_scheduled' => $checkOut->toDateTimeString(),
+                'breakdown' => [
+                    'rate_per_hour' => $booking->rate_per_hour,
+                    'quantity' => $quantity,
+                    'total_hours' => $totalHours,
+                    'room_subtotal' => $booking->room_subtotal,
+                    'products_subtotal' => $booking->products_subtotal,
+                    'subtotal' => $booking->subtotal,
+                    'tax_amount' => $booking->tax_amount,
+                    'discount_amount' => $booking->discount_amount,
+                    'total_amount' => $booking->total_amount,
+                    'paid_amount' => $booking->paid_amount,
+                    'balance' => $booking->balance,
+                ],
+            ]
+        ], 201);
+        
+    } catch (\Exception $e) {
+        DB::rollBack();
+        
+        Log::error('Error al crear booking:', [
+            'error' => $e->getMessage(),
+            'trace' => $e->getTraceAsString()
+        ]);
+        
+        return response()->json([
+            'success' => false,
+            'message' => 'Error al iniciar servicio',
+            'error' => $e->getMessage()
+        ], 500);
     }
+}
     public function finishService(FinishBookingRequest $request, Booking $booking){
         try {
             DB::beginTransaction();
@@ -897,139 +935,154 @@ class BookingController extends Controller{
             ], 500);
         }
     }
-    public function index(Request $request){
-        $query = Booking::with([
-            'room.floor.subBranch',
-            'customer',
-            'rateType',
-            'currency',
-            'payments.paymentMethod',
-            'consumptions'
-        ]);
-        if ($request->filled('search')) {
-            $search = $request->search;
-            $query->where(function($q) use ($search) {
-                $q->where('booking_code', 'like', "%{$search}%")
-                  ->orWhereHas('customer', function($q) use ($search) {
-                      $q->where('name', 'like', "%{$search}%")
+public function index(Request $request)
+{
+    $query = Booking::with([
+        'room',
+        'customer',
+        'rateType',
+        'payments.paymentMethod'
+    ]);
+
+    // Filtro de búsqueda
+    if ($request->filled('search')) {
+        $search = $request->search;
+        $query->where(function($q) use ($search) {
+            $q->where('booking_code', 'like', "%{$search}%")
+                ->orWhereHas('customer', function($q) use ($search) {
+                    $q->where('name', 'like', "%{$search}%")
                         ->orWhere('document_number', 'like', "%{$search}%");
-                  })
-                  ->orWhereHas('room', function($q) use ($search) {
-                      $q->where('name', 'like', "%{$search}%")
-                        ->orWhere('room_number', 'like', "%{$search}%");
-                  });
-            });
-        }
-        if ($request->filled('payment_method_id')) {
-            $query->whereHas('payments', function($q) use ($request) {
-                $q->where('payment_method_id', $request->payment_method_id);
-            });
-        }
-        if ($request->filled('date_from')) {
-            $query->whereDate('check_in', '>=', $request->date_from);
-        }
-        if ($request->filled('date_to')) {
-            $query->whereDate('check_in', '<=', $request->date_to);
-        }
-        if ($request->filled('status')) {
-            $query->where('status', $request->status);
-        }
-        if ($request->filled('sub_branch_id')) {
-            $query->where('sub_branch_id', $request->sub_branch_id);
-        }
-        $sortBy = $request->get('sort_by', 'created_at');
-        $sortOrder = $request->get('sort_order', 'desc');
-        $query->orderBy($sortBy, $sortOrder);
-        $perPage = $request->get('per_page', 15);
-        $bookings = $query->paginate($perPage);
-        $totals = $this->calculateTotals($request);
-        $totalsByPaymentMethod = $this->calculateTotalsByPaymentMethod($request);
-        return response()->json([
-            'success' => true,
-            'data' => BookingListResource::collection($bookings),
-            'pagination' => [
-                'total' => $bookings->total(),
-                'per_page' => $bookings->perPage(),
-                'current_page' => $bookings->currentPage(),
-                'last_page' => $bookings->lastPage(),
-                'from' => $bookings->firstItem(),
-                'to' => $bookings->lastItem(),
-            ],
-            'totals' => $totals,
-            'totals_by_payment_method' => $totalsByPaymentMethod,
-        ]);
-    }
-    private function calculateTotals(Request $request){
-        $query = Booking::query();
-        $this->applyFilters($query, $request);
-        return [
-            'total_bookings' => $query->count(),
-            'total_amount' => $query->sum('total_amount'),
-            'total_paid' => $query->sum('paid_amount'),
-            'total_balance' => $query->sum(DB::raw('total_amount - paid_amount')),
-            'total_room_subtotal' => $query->sum('room_subtotal'),
-            'total_products_subtotal' => $query->sum('products_subtotal'),
-            'total_tax' => $query->sum('tax_amount'),
-            'total_discount' => $query->sum('discount_amount'),
-        ];
-    }
-    private function calculateTotalsByPaymentMethod(Request $request){
-        $query = Booking::query();
-        $filters = $request->except('payment_method_id');
-        $this->applyFilters($query, new Request($filters));
-        $totals = $query->join('payments', 'bookings.id', '=', 'payments.booking_id')
-            ->join('payment_methods', 'payments.payment_method_id', '=', 'payment_methods.id')
-            ->select(
-                'payment_methods.id',
-                'payment_methods.name',
-                DB::raw('COUNT(DISTINCT bookings.id) as total_bookings'),
-                DB::raw('SUM(payments.amount) as total_paid'),
-                DB::raw('SUM(bookings.total_amount) as total_amount')
-            )
-            ->groupBy('payment_methods.id', 'payment_methods.name')
-            ->get();
-        return $totals->map(function($item) {
-            return [
-                'payment_method_id' => $item->id,
-                'payment_method_name' => $item->name,
-                'total_bookings' => (int) $item->total_bookings,
-                'total_paid' => (float) $item->total_paid,
-                'total_amount' => (float) $item->total_amount,
-            ];
+                })
+                ->orWhereHas('room', function($q) use ($search) {
+                    $q->where('room_number', 'like', "%{$search}%");
+                });
         });
     }
-    private function applyFilters($query, Request $request){
-        if ($request->filled('search')) {
-            $search = $request->search;
-            $query->where(function($q) use ($search) {
-                $q->where('booking_code', 'like', "%{$search}%")
-                  ->orWhereHas('customer', function($q) use ($search) {
-                      $q->where('name', 'like', "%{$search}%")
-                        ->orWhere('document_number', 'like', "%{$search}%");
-                  })
-                  ->orWhereHas('room', function($q) use ($search) {
-                      $q->where('name', 'like', "%{$search}%")
-                        ->orWhere('room_number', 'like', "%{$search}%");
-                  });
-            });
-        }
-        if ($request->filled('payment_method_id')) {
-            $query->whereHas('payments', function($q) use ($request) {
-                $q->where('payment_method_id', $request->payment_method_id);
-            });
-        }
-        if ($request->filled('date_from')) {
-            $query->whereDate('check_in', '>=', $request->date_from);
-        }
-        if ($request->filled('date_to')) {
-            $query->whereDate('check_in', '<=', $request->date_to);
-        }
-        if ($request->filled('status')) {
-            $query->where('status', $request->status);
-        }
-        if ($request->filled('sub_branch_id')) {
-            $query->where('sub_branch_id', $request->sub_branch_id);
-        }
-        return $query;
+
+    // Filtro por método de pago
+    if ($request->filled('payment_method_id')) {
+        $query->whereHas('payments', function($q) use ($request) {
+            $q->where('payment_method_id', $request->payment_method_id);
+        });
     }
+
+    // Filtro por rango de fechas
+    if ($request->filled('date_from')) {
+        $query->whereDate('check_in', '>=', $request->date_from);
+    }
+
+    if ($request->filled('date_to')) {
+        $query->whereDate('check_in', '<=', $request->date_to);
+    }
+
+    // Filtro por estado
+    if ($request->filled('status')) {
+        $query->where('status', $request->status);
+    }
+
+    // Filtro por sucursal
+    if ($request->filled('sub_branch_id')) {
+        $query->where('sub_branch_id', $request->sub_branch_id);
+    }
+
+    // Ordenamiento
+    $sortBy = $request->get('sort_by', 'created_at');
+    $sortOrder = $request->get('sort_order', 'desc');
+    $query->orderBy($sortBy, $sortOrder);
+
+    // Paginación
+    $perPage = $request->get('per_page', 15);
+    $bookings = $query->paginate($perPage);
+
+    // Mapear los datos simplificados
+    $data = $bookings->map(function($booking) {
+        $payment = $booking->payments->first();
+        $quantityLabel = $this->getQuantityLabel($booking);
+
+        return [
+            'id' => $booking->id,
+            'payment_code' => $payment ? $payment->payment_code : 'Sin pago',
+            'booking_code' => $booking->booking_code,
+            'habitacion' => $booking->room->room_number ?? 'N/A',
+            'cliente' => $booking->customer->name ?? 'Sin cliente',
+            'fecha' => $booking->check_in ? $booking->check_in->format('d/m/Y H:i') : null,
+            
+            // ✅ PRECIO, CANTIDAD Y TOTAL
+            'precio_unitario' => (float) $booking->rate_per_hour,  // Precio por hora/día/noche
+            'quantity' => $booking->quantity,  // Cantidad (5, 7, 3)
+            'quantity_label' => $quantityLabel,  // "5 hora(s)", "7 día(s)"
+            'total_hours' => $booking->total_hours,  // Horas totales
+            'monto_total' => (float) $booking->room_subtotal,  // Total = precio × quantity
+            
+            'rate_type' => $booking->rateType ? [
+                'name' => $booking->rateType->name,
+                'code' => $booking->rateType->code,
+                'duration_hours' => $booking->rateType->duration_hours,
+            ] : null,
+            
+            'metodo_pago' => $payment && $payment->paymentMethod ? $payment->paymentMethod->name : 'N/A',
+            'estado' => $booking->status,
+            'estado_label' => $this->getStatusLabel($booking->status),
+        ];
+    });
+
+    return response()->json([
+        'success' => true,
+        'data' => $data,
+        'pagination' => [
+            'total' => $bookings->total(),
+            'per_page' => $bookings->perPage(),
+            'current_page' => $bookings->currentPage(),
+            'last_page' => $bookings->lastPage(),
+            'from' => $bookings->firstItem(),
+            'to' => $bookings->lastItem(),
+        ],
+    ]);
+}
+
+/**
+ * ✅ Obtener etiqueta formateada de la cantidad
+ */
+private function getQuantityLabel($booking)
+{
+    if (!$booking->rateType || !$booking->quantity) {
+        return $booking->quantity . ' unidad(es)';
+    }
+
+    $unit = strtoupper($booking->rateType->code);
+    
+    switch($unit) {
+        case 'HOUR':
+        case 'HOURLY':
+            return $booking->quantity . ' hora(s)';
+        case 'DAY':
+        case 'DAILY':
+            return $booking->quantity . ' día(s)';
+        case 'NIGHT':
+            return $booking->quantity . ' noche(s)';
+        case '12HOURS':
+        case 'HALF_DAY':
+            return $booking->quantity . ' bloque(s) de 12h';
+        case '8HOURS':
+            return $booking->quantity . ' bloque(s) de 8h';
+        default:
+            return $booking->quantity . ' unidad(es)';
+    }
+}
+
+/**
+ * Obtener etiqueta del estado
+ */
+private function getStatusLabel($status)
+{
+    $labels = [
+        'pending' => 'Pendiente',
+        'confirmed' => 'Confirmada',
+        'checked_in' => 'En Curso',
+        'checked_out' => 'Finalizada',
+        'cancelled' => 'Cancelada',
+    ];
+
+    return $labels[$status] ?? $status;
+}
 }

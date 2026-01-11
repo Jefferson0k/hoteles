@@ -699,15 +699,10 @@ const calculateTotalSeconds = () => {
     return timeAmount.value * multipliers[selectedRate.value];
 };
 
-const calculateTotalHours = () => {
-    switch (selectedRate.value) {
-        case 'hour': return timeAmount.value;
-        case 'day': return timeAmount.value * 24;
-        case 'night': return timeAmount.value * 12;
-        default: return 1;
-    }
+const getQuantity = () => {
+    // Simplemente retorna lo que el usuario ingresó
+    return timeAmount.value;
 };
-
 const formatExtraTime = () => {
     const extraSeconds = Math.abs(remainingSeconds.value);
     const hours = Math.floor(extraSeconds / 3600);
@@ -859,13 +854,15 @@ const processStartService = async () => {
             return rateType.id;
         };
 
-        // Preparar datos del booking
+        // ============================================================
+        // ✅ PREPARAR DATOS DEL BOOKING (CON QUANTITY)
+        // ============================================================
         const bookingData = {
             room_id: props.roomData?.id,
             customers_id: selectedClient.value.id,
             rate_type_id: getRateTypeId(),
             currency_id: selectedCurrency.value?.id,
-            total_hours: calculateTotalHours(),
+            quantity: timeAmount.value,  // ✅ Envía quantity directamente
             rate_per_hour: getCurrentRoomPrice(),
             voucher_type: voucherType.value,
             

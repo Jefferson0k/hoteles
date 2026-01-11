@@ -101,7 +101,7 @@
                 <span class="font-semibold text-sm">Detalle de Ventas</span>
             </div>
             <DataTable 
-                :value="pagos" 
+                :value="bookings" 
                 :loading="cargando"
                 stripedRows
                 paginator 
@@ -110,40 +110,38 @@
                 responsiveLayout="scroll"
                 size="small"
             >
-                <Column field="payment_code" header="Código Pago" sortable></Column>
-                <Column field="booking.booking_code" header="Código Reserva" sortable>
+                <Column field="booking_code" header="Código Reserva" sortable></Column>
+                <Column field="fecha" header="Fecha" sortable>
                     <template #body="slotProps">
-                        {{ slotProps.data.booking?.booking_code || 'N/A' }}
+                        {{ formatoFecha(slotProps.data.fecha) }}
                     </template>
                 </Column>
-                <Column field="booking.room_number" header="Habitación" sortable>
+                <Column field="habitacion" header="Habitación" sortable></Column>
+                <Column field="cliente" header="Cliente" sortable></Column>
+                <Column field="precio_unitario" header="Precio Unit." sortable>
                     <template #body="slotProps">
-                        {{ slotProps.data.booking?.room_number || 'N/A' }}
+                        <span class="font-semibold">S/ {{ formatoMoneda(slotProps.data.precio_unitario) }}</span>
                     </template>
                 </Column>
-                <Column field="payment_date" header="Fecha" sortable>
+                <Column field="quantity_label" header="Cantidad" sortable></Column>
+                <Column field="monto_total" header="Total" sortable>
                     <template #body="slotProps">
-                        {{ formatoFecha(slotProps.data.payment_date) }}
+                        <span class="font-semibold text-green-600">S/ {{ formatoMoneda(slotProps.data.monto_total) }}</span>
                     </template>
                 </Column>
-                <Column field="amount" header="Monto" sortable>
-                    <template #body="slotProps">
-                        <span class="font-semibold">S/ {{ formatoMoneda(slotProps.data.amount) }}</span>
-                    </template>
-                </Column>
-                <Column field="payment_method" header="Método" sortable>
+                <Column field="metodo_pago" header="Método" sortable>
                     <template #body="slotProps">
                         <Tag 
-                            :value="getMetodoPagoLabel(slotProps.data.payment_method)" 
-                            :severity="getSeverityMetodo(slotProps.data.payment_method)" 
+                            :value="slotProps.data.metodo_pago" 
+                            :severity="getSeverityMetodo(slotProps.data.metodo_pago)" 
                         />
                     </template>
                 </Column>
-                <Column field="status" header="Estado" sortable>
+                <Column field="estado_label" header="Estado" sortable>
                     <template #body="slotProps">
                         <Tag 
-                            :value="getEstadoLabel(slotProps.data.status)" 
-                            :severity="getSeverityEstado(slotProps.data.status)" 
+                            :value="slotProps.data.estado_label" 
+                            :severity="getSeverityEstado(slotProps.data.estado_label)" 
                         />
                     </template>
                 </Column>
@@ -159,7 +157,6 @@ import Chart from 'primevue/chart';
 import DataTable from 'primevue/datatable';
 import Column from 'primevue/column';
 import Tag from 'primevue/tag';
-import Button from 'primevue/button';
 import Calendar from 'primevue/calendar';
 import Message from 'primevue/message';
 
@@ -170,18 +167,19 @@ interface Resumen {
     total_horas: number;
 }
 
-interface Pago {
+interface Booking {
     id: string;
-    payment_code: string;
-    amount: number;
-    payment_method: string;
-    payment_date: string;
-    status: string;
-    booking?: {
-        id: string;
-        booking_code: string;
-        room_number: string;
-    };
+    booking_code: string;
+    habitacion: string;
+    cliente: string;
+    fecha: string;
+    precio_unitario: number;
+    quantity: number;
+    quantity_label: string;
+    monto_total: number;
+    metodo_pago: string;
+    estado: string;
+    estado_label: string;
 }
 
 interface DatosGrafica {
@@ -197,7 +195,7 @@ const resumen = ref<Resumen>({
     promedio_reserva: 0,
     total_horas: 0
 });
-const pagos = ref<Pago[]>([]);
+const bookings = ref<Booking[]>([]);
 const datosGrafica = ref<DatosGrafica[]>([]);
 
 const formatoMoneda = (valor: number) => {
@@ -211,16 +209,33 @@ const formatoFecha = (fecha: string) => {
     return new Date(fecha).toLocaleDateString('es-PE', {
         day: '2-digit',
         month: '2-digit',
-        year: 'numeric'
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
     });
+};
+
+// ✅ Función para parsear fecha sin zona horaria
+const parsearFechaSinUTC = (fechaString: string) => {
+    // Formato: "2026-01-11" -> "11 ene"
+    const [year, month, day] = fechaString.split('-');
+    const fecha = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+    return `${parseInt(day)} ${fecha.toLocaleDateString('es-PE', { month: 'short' })}`;
 };
 
 const obtenerParametrosMes = () => {
     const fecha = filtroMes.value;
-    return {
-        month: fecha.getMonth() + 1,
-        year: fecha.getFullYear()
-    };
+    const year = fecha.getFullYear();
+    const month = fecha.getMonth() + 1;
+    
+    // Primer día del mes
+    const date_from = `${year}-${String(month).padStart(2, '0')}-01`;
+    
+    // Último día del mes
+    const ultimoDia = new Date(year, month, 0).getDate();
+    const date_to = `${year}-${String(month).padStart(2, '0')}-${ultimoDia}`;
+    
+    return { date_from, date_to };
 };
 
 const cargarDatos = async () => {
@@ -229,7 +244,7 @@ const cargarDatos = async () => {
         const params = obtenerParametrosMes();
         const response = await axios.get('/reports/ingresos-habitaciones', { params });
         resumen.value = response.data;
-        await cargarPagosDetallados();
+        await cargarBookingsDetallados();
         await cargarDatosGrafica();
     } catch (error) {
         console.error('Error cargando datos:', error);
@@ -238,16 +253,25 @@ const cargarDatos = async () => {
     }
 };
 
-const cargarPagosDetallados = async () => {
+const cargarBookingsDetallados = async () => {
     try {
         const params = obtenerParametrosMes();
+        console.log('📤 Parámetros enviados:', params);
+        
         const response = await axios.get('/bookings', { 
-            params: { ...params, per_page: 100 }
+            params: { 
+                date_from: params.date_from,
+                date_to: params.date_to,
+                per_page: 100
+            }
         });
-        pagos.value = response.data.data || [];
+        
+        console.log('📥 Respuesta recibida:', response.data);
+        
+        bookings.value = response.data.data || [];
     } catch (error) {
-        console.error('Error cargando pagos:', error);
-        pagos.value = [];
+        console.error('❌ Error cargando bookings:', error);
+        bookings.value = [];
     }
 };
 
@@ -255,6 +279,7 @@ const cargarDatosGrafica = async () => {
     try {
         const params = obtenerParametrosMes();
         const response = await axios.get('/reports/ingresos-habitaciones-grafica', { params });
+        console.log('📊 Datos gráfica recibidos:', response.data);
         datosGrafica.value = response.data;
     } catch (error) {
         console.error('Error cargando gráfica:', error);
@@ -275,10 +300,7 @@ const graficaIngresosDia = computed(() => {
     }
 
     return {
-        labels: datosGrafica.value.map(item => {
-            const fecha = new Date(item.dia);
-            return `${fecha.getDate()} ${fecha.toLocaleDateString('es-PE', { month: 'short' })}`;
-        }),
+        labels: datosGrafica.value.map(item => parsearFechaSinUTC(item.dia)),
         datasets: [{
             label: 'Ingresos',
             data: datosGrafica.value.map(item => parseFloat(item.ingresos)),
@@ -290,13 +312,13 @@ const graficaIngresosDia = computed(() => {
 });
 
 const graficaDistribucion = computed(() => {
-    const metodosPago = pagos.value.reduce((acc: any, pago) => {
-        const metodo = pago.payment_method;
-        acc[metodo] = (acc[metodo] || 0) + pago.amount;
+    const metodosPago = bookings.value.reduce((acc: any, booking) => {
+        const metodo = booking.metodo_pago;
+        acc[metodo] = (acc[metodo] || 0) + booking.monto_total;
         return acc;
     }, {});
 
-    const labels = Object.keys(metodosPago).map(key => getMetodoPagoLabel(key));
+    const labels = Object.keys(metodosPago);
     const data = Object.values(metodosPago);
 
     if (!data.length) {
@@ -350,40 +372,20 @@ const opcionesPie = {
     }
 };
 
-const getMetodoPagoLabel = (metodo: string) => {
-    const metodos: { [key: string]: string } = {
-        'cash': 'Efectivo',
-        'card': 'Tarjeta',
-        'transfer': 'Transferencia'
-    };
-    return metodos[metodo] || metodo;
-};
-
-const getEstadoLabel = (estado: string) => {
-    const estados: { [key: string]: string } = {
-        'completed': 'Completado',
-        'pending': 'Pendiente',
-        'failed': 'Fallido'
-    };
-    return estados[estado] || estado;
-};
-
 const getSeverityMetodo = (metodo: string) => {
-    switch (metodo) {
-        case 'cash': return 'success';
-        case 'card': return 'info';
-        case 'transfer': return 'warning';
-        default: return 'secondary';
-    }
+    const metodoLower = metodo.toLowerCase();
+    if (metodoLower.includes('efectivo') || metodoLower.includes('cash')) return 'success';
+    if (metodoLower.includes('tarjeta') || metodoLower.includes('card')) return 'info';
+    if (metodoLower.includes('transferencia') || metodoLower.includes('transfer')) return 'warn';
+    return 'secondary';
 };
 
 const getSeverityEstado = (estado: string) => {
-    switch (estado) {
-        case 'completed': return 'success';
-        case 'pending': return 'warning';
-        case 'failed': return 'danger';
-        default: return 'secondary';
-    }
+    const estadoLower = estado.toLowerCase();
+    if (estadoLower.includes('finalizada') || estadoLower.includes('completado')) return 'success';
+    if (estadoLower.includes('curso') || estadoLower.includes('pendiente')) return 'warn';
+    if (estadoLower.includes('cancelada') || estadoLower.includes('fallido')) return 'danger';
+    return 'secondary';
 };
 
 onMounted(() => {

@@ -1,9 +1,10 @@
 <template>
+
   <Head title="habitacion" />
   <AppLayouth>
     <div>
       <template v-if="isLoading">
-        <Espera/>
+        <Espera />
       </template>
       <template v-else>
         <div class="card">
@@ -23,7 +24,6 @@ import listRommFloor from './Desarrollo/listRommFloor.vue';
 
 const page = usePage();
 
-// CAMBIO IMPORTANTE: Acceder a data.data porque viene anidado
 const roomData = computed(() => page.props.data?.data || page.props.data);
 
 const isLoading = ref(true);

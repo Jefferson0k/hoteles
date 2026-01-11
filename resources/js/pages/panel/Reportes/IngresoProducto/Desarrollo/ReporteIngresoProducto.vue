@@ -53,7 +53,7 @@
             <Message severity="secondary" class="!m-0">
                 <div class="flex items-center justify-between w-full">
                     <div>
-                        <div class="text-xl font-bold">S/ {{ formatoMoneda(resumen.promedio_venta) }}</div>
+                        <div class="text-xl font-bold">S/ {{ formatoMoneda(resumen.reservas_con_consumo > 0 ? resumen.total / resumen.reservas_con_consumo : 0) }}</div>
                         <div class="text-sm opacity-80">Promedio por Venta</div>
                     </div>
                     <i class="pi pi-chart-line text-2xl"></i>
@@ -107,40 +107,40 @@
 
             <!-- Estadísticas -->
             <div>
-    <div class="flex items-center gap-2 mb-3">
-        <i class="pi pi-info-circle"></i>
-        <h3 class="text-base font-semibold">Estadísticas</h3>
-    </div>
-    <div class="space-y-2">
-        <Message severity="info" class="!m-0">
-            <div class="flex items-center justify-between w-full gap-4">
-                <span class="text-sm">Producto Más Vendido</span>
-                <span class="font-semibold text-sm text-right">{{ estadisticas.producto_mas_vendido }}</span>
+                <div class="flex items-center gap-2 mb-3">
+                    <i class="pi pi-info-circle"></i>
+                    <h3 class="text-base font-semibold">Estadísticas</h3>
+                </div>
+                <div class="space-y-2">
+                    <Message severity="info" class="!m-0">
+                        <div class="flex items-center justify-between w-full gap-4">
+                            <span class="text-sm">Producto Más Vendido</span>
+                            <span class="font-semibold text-sm text-right">{{ estadisticas.producto_mas_vendido }}</span>
+                        </div>
+                    </Message>
+                    <br>
+                    <Message severity="success" class="!m-0">
+                        <div class="flex items-center justify-between w-full gap-4">
+                            <span class="text-sm">Ingreso Promedio</span>
+                            <span class="font-semibold text-sm text-right">S/ {{ formatoMoneda(estadisticas.promedio_por_producto) }}</span>
+                        </div>
+                    </Message>
+                    <br>
+                    <Message severity="warn" class="!m-0">
+                        <div class="flex items-center justify-between w-full gap-4">
+                            <span class="text-sm">Día con Más Ventas</span>
+                            <span class="font-semibold text-sm text-right">{{ estadisticas.dia_max_ventas }}</span>
+                        </div>
+                    </Message>
+                    <br>
+                    <Message severity="secondary" class="!m-0">
+                        <div class="flex items-center justify-between w-full gap-4">
+                            <span class="text-sm">Tasa de Conversión</span>
+                            <span class="font-semibold text-sm text-right">{{ estadisticas.tasa_conversion }}%</span>
+                        </div>
+                    </Message>
+                </div>
             </div>
-        </Message>
-        <br>
-        <Message severity="success" class="!m-0">
-            <div class="flex items-center justify-between w-full gap-4">
-                <span class="text-sm">Ingreso Promedio</span>
-                <span class="font-semibold text-sm text-right">S/ {{ formatoMoneda(estadisticas.promedio_por_producto) }}</span>
-            </div>
-        </Message>
-        <br>
-        <Message severity="warn" class="!m-0">
-            <div class="flex items-center justify-between w-full gap-4">
-                <span class="text-sm">Día con Más Ventas</span>
-                <span class="font-semibold text-sm text-right">{{ estadisticas.dia_max_ventas }}</span>
-            </div>
-        </Message>
-        <br>
-        <Message severity="secondary" class="!m-0">
-            <div class="flex items-center justify-between w-full gap-4">
-                <span class="text-sm">Tasa de Conversión</span>
-                <span class="font-semibold text-sm text-right">{{ estadisticas.tasa_conversion }}%</span>
-            </div>
-        </Message>
-    </div>
-</div>
         </div>
 
         <!-- TABLA DETALLADA DE CONSUMOS -->
@@ -424,11 +424,7 @@ const graficaIngresosDia = computed(() => {
         };
     }
 
-    const labels = datosGrafica.value.map(item => {
-        const fecha = new Date(item.dia);
-        return `${fecha.getDate()} ${fecha.toLocaleDateString('es-PE', { month: 'short' })}`;
-    });
-    
+    const labels = datosGrafica.value.map(item => item.dia);
     const data = datosGrafica.value.map(item => parseFloat(item.ingresos));
 
     return {
@@ -494,11 +490,7 @@ const graficaTendencia = computed(() => {
         };
     }
 
-    const labels = datosGrafica.value.map(item => {
-        const fecha = new Date(item.dia);
-        return `${fecha.getDate()} ${fecha.toLocaleDateString('es-PE', { month: 'short' })}`;
-    });
-    
+    const labels = datosGrafica.value.map(item => item.dia);
     const data = datosGrafica.value.map(item => parseFloat(item.ingresos));
 
     return {
