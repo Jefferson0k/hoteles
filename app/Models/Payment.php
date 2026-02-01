@@ -149,159 +149,201 @@ class Payment extends Model implements Auditable
         });
     }
     public static function getReportePagos(
-        $startDate, 
-        $endDate, 
-        $subBranchId = null, 
-        $paymentMethodId = null,
-        $codigoPago = null,
-        $habitacion = null,
-        $cliente = null,
-        $page = 1,
-        $perPage = 10
-    ) {
-        $query = self::with([
-            'booking.room.floor.subBranch',
-            'booking.customer',
-            'booking.consumptions.product',
-            'paymentMethod',
-            'currency',
-            'cashRegister'
-        ])
-        ->where('status', self::STATUS_COMPLETED)
-        ->whereBetween('payment_date', [$startDate . ' 00:00:00', $endDate . ' 23:59:59']);
+    $startDate, 
+    $endDate, 
+    $subBranchId = null, 
+    $paymentMethodId = null,
+    $codigoPago = null,
+    $habitacion = null,
+    $cliente = null,
+    $page = 1,
+    $perPage = 10
+) {
+    $query = self::with([
+        'booking.room.floor.subBranch',
+        'booking.customer',
+        'booking.consumptions.product',
+        'booking.rateType',
+        'paymentMethod',
+        'currency',
+        'cashRegister'
+    ])
+    ->where('status', self::STATUS_COMPLETED)
+    ->whereBetween('payment_date', [$startDate . ' 00:00:00', $endDate . ' 23:59:59']);
 
-        // Filtro por sucursal
-        if ($subBranchId) {
-            $query->whereHas('booking', function($q) use ($subBranchId) {
-                $q->where('sub_branch_id', $subBranchId);
-            });
-        }
-
-        // Filtro por método de pago
-        if ($paymentMethodId) {
-            $query->where('payment_method_id', $paymentMethodId);
-        }
-
-        // Filtro por código de pago
-        if ($codigoPago) {
-            $query->where('payment_code', 'like', '%' . $codigoPago . '%');
-        }
-
-        // Filtro por habitación
-        if ($habitacion) {
-            $query->whereHas('booking.room', function($q) use ($habitacion) {
-                $q->where('room_number', 'like', '%' . $habitacion . '%');
-            });
-        }
-
-        // Filtro por cliente
-        if ($cliente) {
-            $query->whereHas('booking.customer', function($q) use ($cliente) {
-                $q->where('name', 'like', '%' . $cliente . '%');
-            });
-        }
-
-        // Obtener totales ANTES de la paginación
-        $totalGeneral = 0;
-        $totalesPorMetodo = [];
-        
-        // Clonar query para obtener todos los registros sin paginación para los totales
-        $allPayments = (clone $query)->get();
-        
-        foreach ($allPayments as $payment) {
-            $metodoPago = $payment->paymentMethod->name ?? 'No especificado';
-            $montoPago = (float) $payment->amount;
-            
-            $totalGeneral += $montoPago;
-            
-            if (!isset($totalesPorMetodo[$metodoPago])) {
-                $totalesPorMetodo[$metodoPago] = [
-                    'cantidad' => 0,
-                    'total' => 0
-                ];
-            }
-            
-            $totalesPorMetodo[$metodoPago]['cantidad']++;
-            $totalesPorMetodo[$metodoPago]['total'] += $montoPago;
-        }
-
-        // Aplicar paginación
-        $payments = $query->orderBy('payment_date', 'desc')->paginate($perPage, ['*'], 'page', $page);
-
-        $listadoPagos = $payments->map(function ($payment) {
-            $booking = $payment->booking;
-            $metodoPago = $payment->paymentMethod->name ?? 'No especificado';
-            $montoPago = (float) $payment->amount;
-
-            // CORRECCIÓN: Usar los campos específicos room_subtotal y products_subtotal
-            $costoHabitacion = (float) ($booking->room_subtotal ?? 0);
-            $totalConsumos = (float) ($booking->products_subtotal ?? 0);
-            
-            // Cálculo correcto del total a pagar
-            $totalAPagar = $costoHabitacion + $totalConsumos + (float) $booking->tax_amount - (float) $booking->discount_amount;
-
-            return [
-                'id' => $payment->id,
-                'codigo_pago' => $payment->payment_code,
-                'fecha_pago' => $payment->payment_date->format('d-m-Y H:i:s A'),
-                'monto_pagado' => $montoPago,
-                'metodo_pago' => $metodoPago,
-                'moneda' => $payment->currency->code ?? 'PEN',
-                'referencia' => $payment->reference,
-                'numero_operacion' => $payment->operation_number,
-                'codigo_reserva' => $booking->booking_code,
-                'habitacion' => $booking->room->room_number ?? 'N/A',
-                'sucursal' => $booking->room->floor->subBranch->name ?? 'N/A',
-                'cliente' => $booking->customer->name ?? 'Sin registrar',
-                'hora_inicio' => $booking->check_in ? $booking->check_in->format('d-m-Y H:i:s A') : null,
-                'hora_fin' => $booking->check_out ? $booking->check_out->format('d-m-Y H:i:s A') : null,
-                'costo_habitacion' => $costoHabitacion,
-                'tuvo_consumo' => $totalConsumos > 0 ? 'SI' : 'NO',
-                'consumos' => $booking->consumptions->map(function($c) {
-                    return [
-                        'producto' => $c->product->name,
-                        'cantidad' => (float) $c->quantity,
-                        'precio' => (float) $c->unit_price,
-                        'total' => (float) $c->total_price,
-                    ];
-                })->toArray(),
-                'total_consumos' => $totalConsumos,
-                'impuestos' => (float) $booking->tax_amount,
-                'descuentos' => (float) $booking->discount_amount,
-                'total_a_pagar' => $totalAPagar,
-                'total_pagado_reserva' => (float) $booking->paid_amount,
-                'saldo_pendiente' => $totalAPagar - (float) $booking->paid_amount,
-                'caja_registradora' => $payment->cashRegister->name ?? 'N/A',
-                'notas' => $payment->notes,
-            ];
+    // Filtro por sucursal
+    if ($subBranchId) {
+        $query->whereHas('booking', function($q) use ($subBranchId) {
+            $q->where('sub_branch_id', $subBranchId);
         });
+    }
+
+    // Filtro por método de pago
+    if ($paymentMethodId) {
+        $query->where('payment_method_id', $paymentMethodId);
+    }
+
+    // Filtro por código de pago
+    if ($codigoPago) {
+        $query->where('payment_code', 'like', '%' . $codigoPago . '%');
+    }
+
+    // Filtro por habitación
+    if ($habitacion) {
+        $query->whereHas('booking.room', function($q) use ($habitacion) {
+            $q->where('room_number', 'like', '%' . $habitacion . '%');
+        });
+    }
+
+    // Filtro por cliente
+    if ($cliente) {
+        $query->whereHas('booking.customer', function($q) use ($cliente) {
+            $q->where('name', 'like', '%' . $cliente . '%');
+        });
+    }
+
+    // Obtener totales ANTES de la paginación
+    $totalGeneral = 0;
+    $totalesPorMetodo = [];
+    
+    // Clonar query para obtener todos los registros sin paginación para los totales
+    $allPayments = (clone $query)->get();
+    
+    foreach ($allPayments as $payment) {
+        $metodoPago = $payment->paymentMethod->name ?? 'No especificado';
+        $montoPago = (float) $payment->amount;
+        
+        $totalGeneral += $montoPago;
+        
+        if (!isset($totalesPorMetodo[$metodoPago])) {
+            $totalesPorMetodo[$metodoPago] = [
+                'cantidad' => 0,
+                'total' => 0
+            ];
+        }
+        
+        $totalesPorMetodo[$metodoPago]['cantidad']++;
+        $totalesPorMetodo[$metodoPago]['total'] += $montoPago;
+    }
+
+    // Aplicar paginación
+    $payments = $query->orderBy('payment_date', 'desc')->paginate($perPage, ['*'], 'page', $page);
+
+    $listadoPagos = $payments->map(function ($payment) {
+        $booking = $payment->booking;
+        $metodoPago = $payment->paymentMethod->name ?? 'No especificado';
+        $montoPago = (float) $payment->amount;
+
+        // CORRECCIÓN: Usar los campos específicos room_subtotal y products_subtotal
+        $costoHabitacion = (float) ($booking->room_subtotal ?? 0);
+        $totalConsumos = (float) ($booking->products_subtotal ?? 0);
+        
+        // Cálculo correcto del total a pagar
+        $totalAPagar = $costoHabitacion + $totalConsumos + (float) $booking->tax_amount - (float) $booking->discount_amount;
+
+        // Formatear notas para que se vean mejor en el PDF
+        $notasPago = $payment->notes ? trim($payment->notes) : null;
+        $notasHabitacion = $booking->notes ? trim($booking->notes) : null;
+
+        // Obtener información del tipo de tarifa
+        $rateType = $booking->rateType;
+        $rateTypeName = $rateType ? $rateType->name : 'No especificado';
+        $rateTypeCode = $rateType ? $rateType->code : null;
+        $rateTypeId = $rateType ? $rateType->id : null;
+        $cantidad = $booking->quantity ?? 0;
+
+        // Crear texto descriptivo más claro según el tipo de tarifa
+        $unidad = 'unidades';
+        if ($rateTypeCode === 'DAY') {
+            $unidad = $cantidad == 1 ? 'día' : 'días';
+        } elseif ($rateTypeCode === 'NIGHT') {
+            $unidad = $cantidad == 1 ? 'noche' : 'noches';
+        } elseif ($rateTypeCode === 'HOUR') {
+            $unidad = $cantidad == 1 ? 'hora' : 'horas';
+        }
+
+        $cantidadDescriptiva = $cantidad > 0 
+            ? "{$cantidad} - {$unidad}" 
+            : 'N/A';
 
         return [
-            'pagos' => $listadoPagos->values(),
-            'pagination' => [
-                'current_page' => $payments->currentPage(),
-                'per_page' => $payments->perPage(),
-                'total' => $payments->total(),
-                'last_page' => $payments->lastPage(),
-                'from' => $payments->firstItem(),
-                'to' => $payments->lastItem(),
-            ],
-            'TOTAL_GENERAL' => round($totalGeneral, 2),
-            'totales_por_medio_pago' => collect($totalesPorMetodo)->map(function($data, $metodo) {
+            'id' => $payment->id,
+            'codigo_pago' => $payment->payment_code,
+            'fecha_pago' => $payment->payment_date->format('d-m-Y H:i:s A'),
+            'monto_pagado' => $montoPago,
+            'metodo_pago' => $metodoPago,
+            'moneda' => $payment->currency->code ?? 'PEN',
+            'referencia' => $payment->reference,
+            'numero_operacion' => $payment->operation_number,
+            'codigo_reserva' => $booking->booking_code,
+            'habitacion' => $booking->room->room_number ?? 'N/A',
+            'sucursal' => $booking->room->floor->subBranch->name ?? 'N/A',
+            'cliente' => $booking->customer->name ?? 'Sin registrar',
+            'hora_inicio' => $booking->check_in ? $booking->check_in->format('d-m-Y H:i:s A') : null,
+            'hora_fin' => $booking->check_out ? $booking->check_out->format('d-m-Y H:i:s A') : null,
+            'costo_habitacion' => $costoHabitacion,
+            'tuvo_consumo' => $totalConsumos > 0 ? 'SI' : 'NO',
+            'consumos' => $booking->consumptions->map(function($c) {
                 return [
-                    'metodo_pago' => $metodo,
-                    'cantidad_pagos' => $data['cantidad'],
-                    'total_cobrado' => round($data['total'], 2),
+                    'producto' => $c->product->name,
+                    'cantidad' => (float) $c->quantity,
+                    'precio' => (float) $c->unit_price,
+                    'total' => (float) $c->total_price,
                 ];
-            })->sortByDesc('total_cobrado')->values()->toArray(),
-            'resumen' => [
-                'periodo' => [
-                    'fecha_inicio' => $startDate,
-                    'fecha_fin' => $endDate,
-                ],
-                'total_pagos_registrados' => $allPayments->count(),
-                'total_cobrado' => round($totalGeneral, 2),
-            ],
+            })->toArray(),
+            'total_consumos' => $totalConsumos,
+            'impuestos' => (float) $booking->tax_amount,
+            'descuentos' => (float) $booking->discount_amount,
+            'total_a_pagar' => $totalAPagar,
+            'total_pagado_reserva' => (float) $booking->paid_amount,
+            'saldo_pendiente' => $totalAPagar - (float) $booking->paid_amount,
+            'caja_registradora' => $payment->cashRegister->name ?? 'N/A',
+            'notas' => $notasPago,
+            'notes_habitacion' => $notasHabitacion,
+            // Datos adicionales de la reserva
+            'code' => $booking->booking_code,
+            'rate_type_id' => $rateTypeId,
+            'tipo_tarifa' => $rateTypeName,
+            'tipo_tarifa_codigo' => $rateTypeCode,
+            'total_hours' => $booking->total_hours,
+            'cantidad' => $cantidad,
+            'cantidad_texto' => $cantidadDescriptiva, // "5 días", "8 horas", "2 noches"
+            'rate_per_unit' => (float) ($booking->rate_per_unit ?? 0),
+            'subtotal' => (float) ($booking->subtotal ?? 0),
+            'quantity' => $booking->quantity,
+            'total_amount' => (float) ($booking->total_amount ?? 0),
+            'paid_amount' => (float) ($booking->paid_amount ?? 0),
+            'status' => $booking->status,
+            'rate_per_hour' => (float) ($booking->rate_per_hour ?? 0),
         ];
-    }
+    });
+
+    return [
+        'pagos' => $listadoPagos->values(),
+        'pagination' => [
+            'current_page' => $payments->currentPage(),
+            'per_page' => $payments->perPage(),
+            'total' => $payments->total(),
+            'last_page' => $payments->lastPage(),
+            'from' => $payments->firstItem(),
+            'to' => $payments->lastItem(),
+        ],
+        'TOTAL_GENERAL' => round($totalGeneral, 2),
+        'totales_por_medio_pago' => collect($totalesPorMetodo)->map(function($data, $metodo) {
+            return [
+                'metodo_pago' => $metodo,
+                'cantidad_pagos' => $data['cantidad'],
+                'total_cobrado' => round($data['total'], 2),
+            ];
+        })->sortByDesc('total_cobrado')->values()->toArray(),
+        'resumen' => [
+            'periodo' => [
+                'fecha_inicio' => $startDate,
+                'fecha_fin' => $endDate,
+            ],
+            'total_pagos_registrados' => $allPayments->count(),
+            'total_cobrado' => round($totalGeneral, 2),
+        ],
+    ];
+}
 }

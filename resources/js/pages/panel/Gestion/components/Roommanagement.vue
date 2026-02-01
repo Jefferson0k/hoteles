@@ -126,7 +126,7 @@
                                                         severity="warning"
                                                         outlined
                                                         size="small"
-                                                        @click="store.openExtenderDialog(room.id)"
+                                                        @click="store.openExtenderDialog(room.booking_id, room.room_number)"
                                                         v-tooltip.top="'Extender tiempo'"
                                                     />
                                                     <Button 
@@ -135,7 +135,7 @@
                                                         severity="success"
                                                         outlined
                                                         size="small"
-                                                        @click="store.openCobrarDialog(room.id)"
+                                                        @click="store.openCobrarDialog(room.booking_id, room.room_number)"
                                                         v-tooltip.top="'Cobrar tiempo extra'"
                                                     />
                                                     <Button 
@@ -143,7 +143,7 @@
                                                         severity="danger"
                                                         outlined
                                                         size="small"
-                                                        @click="store.openFinalizarDialog(room.id, room.room_number)"
+                                                        @click="store.openFinalizarDialog(room.booking_id, room.room_number)"
                                                         v-tooltip.top="'Finalizar reserva'"
                                                     />
                                                 </template>
@@ -154,7 +154,7 @@
                                                     severity="success"
                                                     outlined
                                                     size="small"
-                                                    @click="store.openLiberarDialog(room.id)"
+                                                    @click="store.openLiberarDialog(room.id, room.room_number)"
                                                     v-tooltip.top="'Liberar habitación'"
                                                 />
                                             </div>
@@ -283,7 +283,7 @@
                                                 outlined
                                                 class="flex-1"
                                                 size="small"
-                                                @click="store.openExtenderDialog(room.id)"
+                                                @click="store.openExtenderDialog(room.booking_id, room.room_number)"
                                                 v-tooltip.top="'Extender tiempo'"
                                             />
                                             <Button 
@@ -293,7 +293,7 @@
                                                 outlined
                                                 class="flex-1"
                                                 size="small"
-                                                @click="store.openCobrarDialog(room.id)"
+                                                @click="store.openCobrarDialog(room.booking_id, room.room_number)"
                                                 v-tooltip.top="'Cobrar tiempo extra'"
                                             />
                                             <Button 
@@ -302,7 +302,7 @@
                                                 outlined
                                                 class="flex-1"
                                                 size="small"
-                                                @click="store.openFinalizarDialog(room.id, room.room_number)"
+                                                @click="store.openFinalizarDialog(room.booking_id, room.room_number)"
                                                 v-tooltip.top="'Finalizar reserva'"
                                             />
                                         </template>
@@ -314,7 +314,7 @@
                                             outlined
                                             class="flex-1"
                                             size="small"
-                                            @click="store.openLiberarDialog(room.id)"
+                                            @click="store.openLiberarDialog(room.id, room.room_number)"
                                             v-tooltip.top="'Liberar habitación'"
                                         />
                                     </div>
@@ -378,27 +378,30 @@
         </DataView>
 
         <!-- Diálogos -->
-        <LiberarRoom 
-            v-model:visible="store.showLiberarDialog" 
+        <liberarhabitacion 
+            v-model:visible="store.liberarDialog" 
             :roomId="store.selectedRoomId"
+            :roomNumber="store.selectedRoomNumber"
             @room-liberated="store.handleRoomLiberated"
         />
 
         <ExtenderTiempo 
-            v-model:visible="store.showExtenderDialog" 
-            :roomId="store.selectedRoomId"
+            v-model:visible="store.extenderDialog" 
+            :bookingId="store.selectedBookingId"
+            :roomNumber="store.selectedRoomNumber"
             @time-extended="store.handleTimeExtended"
         />
 
         <CobrarTiempoExtra 
             v-model:visible="store.showCobrarDialog" 
-            :roomId="store.selectedRoomId"
+            :bookingId="store.selectedBookingId"
+            :roomNumber="store.selectedRoomNumber"
             @extra-time-charged="store.handleExtraTimeCharged"
         />
 
         <FinalizarReserva 
-            v-model:visible="store.showFinalizarDialog" 
-            :roomId="store.selectedRoomId"
+            v-model:visible="store.finalizarDialog" 
+            :bookingId="store.selectedBookingId"
             :roomNumber="store.selectedRoomNumber"
             @booking-finished="store.handleBookingFinished"
         />
@@ -417,12 +420,7 @@ import Skeleton from 'primevue/skeleton';
 import { useRoomManagementStore, useStatusLabel, useRoomTimer } from '../interface/Roommanagement';
 import type { RoomStatus } from '../interface/Roommanagement';
 
-// Componentes de diálogos (ajusta estas rutas según tu estructura)
-import LiberarRoom from '../Desarrollo/liberarRoom.vue';
-import ExtenderTiempo from '../Desarrollo/extenderTiempo.vue';
-import CobrarTiempoExtra from '../Desarrollo/cobrarTiempoExtra.vue';
-import FinalizarReserva from '../Desarrollo/finalizarReserva.vue';
-
+import liberarhabitacion from '../Desarrollo/liberarhabitacion.vue';
 // Store y composables
 const store = useRoomManagementStore();
 const { getStatusLabel, getStatusSeverity } = useStatusLabel();

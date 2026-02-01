@@ -3,7 +3,6 @@
 namespace App\Http\Controllers\Panel;
 
 use App\Http\Controllers\Controller;
-use App\Http\Requests\Booking\BookingListResource;
 use App\Models\Booking;
 use App\Models\Room;
 use App\Models\RateType;
@@ -13,12 +12,12 @@ use App\Models\CashRegister;
 use App\Models\PaymentMethod;
 use App\Http\Requests\Booking\StoreBookingRequest;
 use App\Http\Requests\Booking\FinishBookingRequest;
+use App\Http\Resources\Booking\BookingResource;
 use App\Models\BookingConsumption;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
-use Carbon\Carbon;
 use Illuminate\Support\Facades\Log;
 
 class BookingController extends Controller{
@@ -228,27 +227,47 @@ class BookingController extends Controller{
     public function finishService(FinishBookingRequest $request, Booking $booking){
         try {
             DB::beginTransaction();
+            
             if ($booking->status !== Booking::STATUS_CHECKED_IN) {
                 return response()->json([
                     'success' => false,
                     'message' => 'La reserva debe estar activa para finalizarla'
                 ], 422);
             }
+
             $checkOutReal = now();
             $checkInTime = $booking->check_in;
-            $hoursUsedReal = $checkInTime->diffInMinutes($checkOutReal) / 60;
+            
+            // Calcular tiempo real usado EN MINUTOS
+            $minutosUsados = $checkInTime->diffInMinutes($checkOutReal);
+            $hoursUsedReal = $minutosUsados / 60;
+            
+            // Comparar con tiempo contratado
             $hoursContracted = $booking->total_hours;
             $extraHours = max(0, $hoursUsedReal - $hoursContracted);
+            
             $extraAmount = 0;
+            $extraHoursCeil = 0;
+            $tieneRecargo = false;
+
+            // Si hay tiempo extra, cobrarlo
             if ($extraHours > 0) {
                 $extraHoursCeil = ceil($extraHours);
                 $extraAmount = $extraHoursCeil * $booking->rate_per_hour;
+                $tieneRecargo = true;
+                
+                // Actualizar reserva
                 $booking->total_hours += $extraHoursCeil;
                 $booking->room_subtotal += $extraAmount;
-                $booking->subtotal += $extraAmount;
-                $booking->total_amount += $extraAmount;
-                $booking->notes = ($booking->notes ?? '') . "\n[" . $checkOutReal . "] Tiempo extra: {$extraHoursCeil}h = {$extraAmount}";
+                $booking->subtotal = $booking->room_subtotal + $booking->products_subtotal;
+                $booking->total_amount = $booking->subtotal + $booking->tax_amount - $booking->discount_amount;
+                
+                $booking->notes = ($booking->notes ?? '') . 
+                    "\n[" . $checkOutReal->format('Y-m-d H:i') . "] ⏰ Tiempo extra al checkout: {$extraHoursCeil}h (real: " . 
+                    round($extraHours, 2) . "h) = S/ {$extraAmount}";
             }
+
+            // Procesar pagos si vienen
             if ($request->has('payments') && count($request->payments) > 0) {
                 foreach ($request->payments as $paymentData) {
                     $paymentMethod = PaymentMethod::find($paymentData['payment_method_id']);
@@ -256,6 +275,7 @@ class BookingController extends Controller{
                     if ($paymentMethod && $paymentMethod->requires_reference && empty($paymentData['operation_number'])) {
                         throw new \Exception("El método de pago {$paymentMethod->name} requiere un número de operación");
                     }
+
                     Payment::create([
                         'id' => Str::uuid(),
                         'payment_code' => $this->generatePaymentCode(),
@@ -264,65 +284,109 @@ class BookingController extends Controller{
                         'amount' => $paymentData['amount'],
                         'amount_base_currency' => $paymentData['amount'],
                         'payment_method' => $paymentMethod->code ?? 'cash',
-                        'payment_method_id' => $paymentData['payment_method_id'],
-                        'cash_register_id' => $paymentData['cash_register_id'] ?? null,
+                        'payment_method_id' => $paymentData['payment_method_id'] ?? null,
                         'operation_number' => $paymentData['operation_number'] ?? null,
                         'payment_date' => now(),
                         'status' => 'completed',
-                        'notes' => $extraHours > 0 ? "Pago al check-out (incluye {$extraHoursCeil}h extras)" : 'Pago al check-out',
+                        'notes' => $tieneRecargo 
+                            ? "Pago al checkout (incluye {$extraHoursCeil}h extras por S/ {$extraAmount})" 
+                            : 'Pago al checkout',
                         'created_by' => Auth::id(),
                     ]);
+
                     $booking->paid_amount += $paymentData['amount'];
                 }
             }
+
             $booking->save();
+
+            // Verificar saldo pendiente
+            $balance = $booking->total_amount - $booking->paid_amount;
             $forceCheckout = $request->force_checkout ?? false;
-            if ($booking->balance > 0 && !$forceCheckout) {
+            
+            if ($balance > 0 && !$forceCheckout) {
+                DB::rollBack();
+                
                 return response()->json([
                     'success' => false,
-                    'message' => 'Hay un saldo pendiente de pago',
+                    'requires_payment' => true,
+                    'message' => $tieneRecargo 
+                        ? "⚠️ Cliente se excedió {$extraHoursCeil}h. Hay saldo pendiente." 
+                        : "⚠️ Hay un saldo pendiente de pago",
                     'data' => [
-                        'balance' => $booking->balance,
-                        'total_amount' => $booking->total_amount,
-                        'paid_amount' => $booking->paid_amount,
-                        'extra_hours' => $extraHours > 0 ? ceil($extraHours) : 0,
-                        'extra_amount' => $extraAmount,
-                        'hours_contracted' => $hoursContracted,
-                        'hours_used' => round($hoursUsedReal, 2),
+                        'balance' => round($balance, 2),
+                        'total_amount' => round($booking->total_amount, 2),
+                        'paid_amount' => round($booking->paid_amount, 2),
+                        'room_subtotal' => round($booking->room_subtotal, 2),
+                        'products_subtotal' => round($booking->products_subtotal, 2),
+                        'tax_amount' => round($booking->tax_amount, 2),
+                        'discount_amount' => round($booking->discount_amount, 2),
+                        'tiempo_extra' => [
+                            'se_paso' => $tieneRecargo,
+                            'horas_contratadas' => $hoursContracted,
+                            'horas_usadas_real' => round($hoursUsedReal, 2),
+                            'minutos_usados' => $minutosUsados,
+                            'horas_extra' => $extraHoursCeil,
+                            'monto_extra' => round($extraAmount, 2),
+                        ]
                     ]
                 ], 422);
             }
+
+            // Finalizar servicio
             $booking->actual_check_out = $checkOutReal;
             $booking->actual_hours = ceil($hoursUsedReal);
             $booking->finish_type = 'manual';
             $booking->finished_by = Auth::id();
-            $booking->checkOut(Auth::id());
+            
             if ($request->notes) {
-                $booking->notes = ($booking->notes ?? '') . "\n[" . $checkOutReal . "] " . $request->notes;
-                $booking->save();
+                $booking->notes = ($booking->notes ?? '') . 
+                    "\n[" . $checkOutReal->format('Y-m-d H:i') . "] " . $request->notes;
             }
+            
+            $booking->save();
+            
+            // Ejecutar checkout (cambia estado de habitación)
+            $booking->checkOut(Auth::id());
+
             DB::commit();
+
             return response()->json([
                 'success' => true,
-                'message' => '✅ Servicio finalizado. Habitación en limpieza.',
+                'message' => $tieneRecargo 
+                    ? "✅ Servicio finalizado con {$extraHoursCeil}h extras. Habitación en limpieza." 
+                    : '✅ Servicio finalizado. Habitación en limpieza.',
                 'data' => [
                     'booking' => $booking->fresh(['room', 'customer', 'consumptions', 'payments']),
-                    'check_out_time' => $checkOutReal->toDateTimeString(),
-                    'final_balance' => $booking->balance,
-                    'time_summary' => [
-                        'hours_contracted' => $hoursContracted,
-                        'hours_used' => round($hoursUsedReal, 2),
-                        'extra_hours' => $extraHours > 0 ? ceil($extraHours) : 0,
-                        'extra_amount' => $extraAmount,
+                    'check_out_time' => $checkOutReal->format('d-m-Y H:i A'),
+                    'final_balance' => round($balance, 2),
+                    'resumen_tiempo' => [
+                        'horas_contratadas' => $hoursContracted,
+                        'horas_usadas' => round($hoursUsedReal, 2),
+                        'minutos_usados' => $minutosUsados,
+                        'se_paso_del_tiempo' => $tieneRecargo,
+                        'horas_extra' => $extraHoursCeil,
+                        'monto_extra' => round($extraAmount, 2),
+                    ],
+                    'resumen_financiero' => [
+                        'room_subtotal' => round($booking->room_subtotal, 2),
+                        'products_subtotal' => round($booking->products_subtotal, 2),
+                        'tax_amount' => round($booking->tax_amount, 2),
+                        'discount_amount' => round($booking->discount_amount, 2),
+                        'total_amount' => round($booking->total_amount, 2),
+                        'paid_amount' => round($booking->paid_amount, 2),
+                        'balance' => round($balance, 2),
                     ]
                 ]
             ]);
+
         } catch (\Exception $e) {
             DB::rollBack();
             Log::error('Error al finalizar booking:', [
                 'booking_id' => $booking->id,
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ]);
+            
             return response()->json([
                 'success' => false,
                 'message' => 'Error al finalizar servicio',
@@ -429,121 +493,6 @@ class BookingController extends Controller{
             ], 500);
         }
     }
-    /**
-     * Extender tiempo (se cobra al salir)
-     */
-    public function extendTime(Request $request, Booking $booking)
-    {
-        $request->validate([
-            'additional_hours' => 'required|integer|min:1|max:24',
-            'notes' => 'nullable|string|max:500'
-        ]);
-
-        try {
-            DB::beginTransaction();
-
-            if ($booking->status !== Booking::STATUS_CHECKED_IN) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Solo se puede extender el tiempo de reservas activas'
-                ], 422);
-            }
-
-            $additionalHours = $request->additional_hours;
-            $additionalAmount = $booking->rate_per_hour * $additionalHours;
-
-            // Guardar valores anteriores para el resumen
-            $previousTotalHours = $booking->total_hours;
-            $previousTotalAmount = $booking->total_amount;
-            $previousCheckOut = $booking->check_out->copy();
-
-            // ACTUALIZAR BOOKING
-            $booking->total_hours += $additionalHours;
-            $booking->check_out = $booking->check_out->addHours($additionalHours);
-            $booking->room_subtotal += $additionalAmount;
-            $booking->subtotal += $additionalAmount;
-            $booking->total_amount += $additionalAmount;
-            $booking->updated_by = Auth::id();
-            
-            // Agregar nota de extensión
-            $noteTimestamp = now()->format('Y-m-d H:i:s');
-            $extensionNote = "[{$noteTimestamp}] Extensión: +{$additionalHours}h = S/ {$additionalAmount} | Total horas: {$previousTotalHours}h → {$booking->total_hours}h | Total: S/ {$previousTotalAmount} → S/ {$booking->total_amount}";
-            
-            if ($request->notes) {
-                $extensionNote .= " | Nota: {$request->notes}";
-            }
-            
-            $booking->notes = ($booking->notes ?? '') . "\n" . $extensionNote;
-            
-            $booking->save();
-
-            // REGISTRAR EN LOG DE HABITACIÓN
-            $booking->room->statusLogs()->create([
-                'id' => Str::uuid(),
-                'room_id' => $booking->room_id,
-                'booking_id' => $booking->id,
-                'previous_status' => Room::STATUS_OCCUPIED,
-                'new_status' => Room::STATUS_OCCUPIED,
-                'reason' => "Extensión de tiempo: +{$additionalHours}h | Nuevo check-out: {$booking->check_out->format('Y-m-d H:i')}",
-                'changed_at' => now(),
-                'changed_by' => Auth::id(),
-            ]);
-
-            // Refrescar balance
-            $newBalance = $booking->balance; // total_amount - paid_amount
-
-            DB::commit();
-
-            return response()->json([
-                'success' => true,
-                'message' => "⏰ Tiempo extendido: +{$additionalHours}h. Se cobrará S/ {$additionalAmount} adicionales al salir.",
-                'data' => [
-                    'booking' => $booking->fresh(['room', 'customer', 'payments', 'consumptions']),
-                    'extension_summary' => [
-                        'additional_hours' => $additionalHours,
-                        'additional_amount' => $additionalAmount,
-                        'previous_total_hours' => $previousTotalHours,
-                        'new_total_hours' => $booking->total_hours,
-                        'previous_total_amount' => $previousTotalAmount,
-                        'new_total_amount' => $booking->total_amount,
-                        'previous_checkout' => $previousCheckOut->toDateTimeString(),
-                        'new_checkout' => $booking->check_out->toDateTimeString(),
-                    ],
-                    'current_balance' => $newBalance,
-                    'paid_amount' => $booking->paid_amount,
-                ]
-            ]);
-
-        } catch (\Exception $e) {
-            DB::rollBack();
-            
-            Log::error('Error al extender tiempo:', [
-                'booking_id' => $booking->id,
-                'additional_hours' => $request->additional_hours ?? null,
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
-            ]);
-
-            return response()->json([
-                'success' => false,
-                'message' => 'Error al extender tiempo',
-                'error' => $e->getMessage()
-            ], 500);
-        }
-    }
-
-    // MÉTODOS AUXILIARES
-
-    private function calculateCheckOut(Carbon $checkIn, string $rateTypeCode, int $totalHours): Carbon
-    {
-        return match($rateTypeCode) {
-            'HOUR' => $checkIn->copy()->addHours($totalHours),
-            'DAY' => $checkIn->copy()->addDays($totalHours),
-            'NIGHT' => $checkIn->copy()->addHours($totalHours * 12),
-            default => $checkIn->copy()->addHours($totalHours)
-        };
-    }
-
     private function generateBookingCode(): string
     {
         return 'BK-' . now()->format('Ymd') . '-' . strtoupper(Str::random(6));
@@ -600,64 +549,6 @@ class BookingController extends Controller{
             ], 500);
         }
     }
-    public function calculateExtraTime($roomId)
-    {
-        try {
-            $room = Room::with('activeBooking')->findOrFail($roomId);
-
-            if (!$room->activeBooking) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'No hay reserva activa en esta habitación'
-                ], 404);
-            }
-
-            $booking = $room->activeBooking;
-            $checkInTime = $booking->check_in;
-            $checkOutScheduled = $booking->check_out;
-            $now = now();
-            
-            // Verificar si realmente hay tiempo vencido
-            if ($now <= $checkOutScheduled) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'El tiempo aún no ha vencido'
-                ], 422);
-            }
-
-            // Calcular tiempo extra
-            $extraMinutes = $checkOutScheduled->diffInMinutes($now);
-            $extraHours = $extraMinutes / 60;
-            $extraHoursCeil = ceil($extraHours);
-            
-            // Calcular costo
-            $ratePerHour = $booking->rate_per_hour;
-            $totalCharge = $extraHoursCeil * $ratePerHour;
-
-            return response()->json([
-                'success' => true,
-                'data' => [
-                    'hours' => floor($extraHours),
-                    'minutes' => $extraMinutes % 60,
-                    'extra_hours_ceil' => $extraHoursCeil,
-                    'rate_per_hour' => number_format($ratePerHour, 2),
-                    'total_charge' => number_format($totalCharge, 2),
-                ]
-            ]);
-
-        } catch (\Exception $e) {
-            Log::error('Error al calcular tiempo extra:', [
-                'room_id' => $roomId,
-                'error' => $e->getMessage()
-            ]);
-
-            return response()->json([
-                'success' => false,
-                'message' => 'Error al calcular tiempo extra'
-            ], 500);
-        }
-    }
-
     /**
      * COBRAR TIEMPO EXTRA
      * Cobra el tiempo extra y extiende el checkout
@@ -729,70 +620,6 @@ class BookingController extends Controller{
             return response()->json([
                 'success' => false,
                 'message' => 'Error al cobrar tiempo extra'
-            ], 500);
-        }
-    }
-
-    /**
-     * EXTENDER TIEMPO (mejorado)
-     * Para el diálogo extenderTiempo.vue
-     */
-    public function extendTimeDialog(Request $request, $roomId){
-        $request->validate([
-            'extra_hours' => 'required|integer|min:1|max:12',
-        ]);
-        try {
-            DB::beginTransaction();
-            $room = Room::with('activeBooking')->findOrFail($roomId);
-            if (!$room->activeBooking) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'No hay reserva activa en esta habitación'
-                ], 404);
-            }
-            $booking = $room->activeBooking;
-            $additionalHours = $request->extra_hours;
-            $additionalAmount = $booking->rate_per_hour * $additionalHours;
-            $booking->total_hours += $additionalHours;
-            $booking->check_out = now()->addHours($additionalHours);
-            $booking->room_subtotal += $additionalAmount;
-            $booking->subtotal += $additionalAmount;
-            $booking->total_amount += $additionalAmount;
-            $booking->notes = ($booking->notes ?? '') . "\n[" . now() . "] Extensión: +{$additionalHours}h = S/ {$additionalAmount}";
-            $booking->updated_by = Auth::id();
-            $booking->save();
-            $booking->room->statusLogs()->create([
-                'id' => Str::uuid(),
-                'room_id' => $booking->room_id,
-                'booking_id' => $booking->id,
-                'previous_status' => Room::STATUS_OCCUPIED,
-                'new_status' => Room::STATUS_OCCUPIED,
-                'reason' => "Extensión: +{$additionalHours}h = S/ {$additionalAmount}",
-                'changed_at' => now(),
-                'changed_by' => Auth::id(),
-            ]);
-            DB::commit();
-            return response()->json([
-                'success' => true,
-                'message' => "Tiempo extendido: +{$additionalHours}h por S/ {$additionalAmount}",
-                'data' => [
-                    'booking' => $booking->fresh(['room', 'customer']),
-                    'additional_amount' => $additionalAmount,
-                    'new_total' => $booking->total_amount,
-                    'new_balance' => $booking->balance,
-                    'new_checkout' => $booking->check_out->toDateTimeString()
-                ]
-            ]);
-        } catch (\Exception $e) {
-            DB::rollBack();
-            
-            Log::error('Error al extender tiempo:', [
-                'room_id' => $roomId,
-                'error' => $e->getMessage()
-            ]);
-            return response()->json([
-                'success' => false,
-                'message' => 'Error al extender tiempo'
             ], 500);
         }
     }
@@ -944,154 +771,565 @@ class BookingController extends Controller{
             ], 500);
         }
     }
-public function index(Request $request)
-{
-    $query = Booking::with([
-        'room',
-        'customer',
-        'rateType',
-        'payments.paymentMethod'
-    ]);
+    public function index(Request $request)
+    {
+        $query = Booking::with([
+            'room',
+            'customer',
+            'rateType',
+            'payments.paymentMethod'
+        ]);
 
-    // Filtro de búsqueda
-    if ($request->filled('search')) {
-        $search = $request->search;
-        $query->where(function($q) use ($search) {
-            $q->where('booking_code', 'like', "%{$search}%")
-                ->orWhereHas('customer', function($q) use ($search) {
-                    $q->where('name', 'like', "%{$search}%")
-                        ->orWhere('document_number', 'like', "%{$search}%");
-                })
-                ->orWhereHas('room', function($q) use ($search) {
-                    $q->where('room_number', 'like', "%{$search}%");
-                });
+        // Filtro de búsqueda
+        if ($request->filled('search')) {
+            $search = $request->search;
+            $query->where(function($q) use ($search) {
+                $q->where('booking_code', 'like', "%{$search}%")
+                    ->orWhereHas('customer', function($q) use ($search) {
+                        $q->where('name', 'like', "%{$search}%")
+                            ->orWhere('document_number', 'like', "%{$search}%");
+                    })
+                    ->orWhereHas('room', function($q) use ($search) {
+                        $q->where('room_number', 'like', "%{$search}%");
+                    });
+            });
+        }
+
+        // Filtro por método de pago
+        if ($request->filled('payment_method_id')) {
+            $query->whereHas('payments', function($q) use ($request) {
+                $q->where('payment_method_id', $request->payment_method_id);
+            });
+        }
+
+        // Filtro por rango de fechas
+        if ($request->filled('date_from')) {
+            $query->whereDate('check_in', '>=', $request->date_from);
+        }
+
+        if ($request->filled('date_to')) {
+            $query->whereDate('check_in', '<=', $request->date_to);
+        }
+
+        // Filtro por estado
+        if ($request->filled('status')) {
+            $query->where('status', $request->status);
+        }
+
+        // Filtro por sucursal
+        if ($request->filled('sub_branch_id')) {
+            $query->where('sub_branch_id', $request->sub_branch_id);
+        }
+
+        // Ordenamiento
+        $sortBy = $request->get('sort_by', 'created_at');
+        $sortOrder = $request->get('sort_order', 'desc');
+        $query->orderBy($sortBy, $sortOrder);
+
+        // Paginación
+        $perPage = $request->get('per_page', 15);
+        $bookings = $query->paginate($perPage);
+
+        // Mapear los datos simplificados
+        $data = $bookings->map(function($booking) {
+            $payment = $booking->payments->first();
+            $quantityLabel = $this->getQuantityLabel($booking);
+
+            return [
+                'id' => $booking->id,
+                'payment_code' => $payment ? $payment->payment_code : 'Sin pago',
+                'booking_code' => $booking->booking_code,
+                'habitacion' => $booking->room->room_number ?? 'N/A',
+                'cliente' => $booking->customer->name ?? 'Sin cliente',
+                'fecha' => $booking->check_in ? $booking->check_in->format('d/m/Y H:i') : null,
+                
+                // ✅ PRECIO, CANTIDAD Y TOTAL
+                'precio_unitario' => (float) $booking->rate_per_hour,  // Precio por hora/día/noche
+                'quantity' => $booking->quantity,  // Cantidad (5, 7, 3)
+                'quantity_label' => $quantityLabel,  // "5 hora(s)", "7 día(s)"
+                'total_hours' => $booking->total_hours,  // Horas totales
+                'monto_total' => (float) $booking->room_subtotal,  // Total = precio × quantity
+                
+                'rate_type' => $booking->rateType ? [
+                    'name' => $booking->rateType->name,
+                    'code' => $booking->rateType->code,
+                    'duration_hours' => $booking->rateType->duration_hours,
+                ] : null,
+                
+                'metodo_pago' => $payment && $payment->paymentMethod ? $payment->paymentMethod->name : 'N/A',
+                'estado' => $booking->status,
+                'estado_label' => $this->getStatusLabel($booking->status),
+            ];
         });
+
+        return response()->json([
+            'success' => true,
+            'data' => $data,
+            'pagination' => [
+                'total' => $bookings->total(),
+                'per_page' => $bookings->perPage(),
+                'current_page' => $bookings->currentPage(),
+                'last_page' => $bookings->lastPage(),
+                'from' => $bookings->firstItem(),
+                'to' => $bookings->lastItem(),
+            ],
+        ]);
     }
 
-    // Filtro por método de pago
-    if ($request->filled('payment_method_id')) {
-        $query->whereHas('payments', function($q) use ($request) {
-            $q->where('payment_method_id', $request->payment_method_id);
-        });
-    }
-
-    // Filtro por rango de fechas
-    if ($request->filled('date_from')) {
-        $query->whereDate('check_in', '>=', $request->date_from);
-    }
-
-    if ($request->filled('date_to')) {
-        $query->whereDate('check_in', '<=', $request->date_to);
-    }
-
-    // Filtro por estado
-    if ($request->filled('status')) {
-        $query->where('status', $request->status);
-    }
-
-    // Filtro por sucursal
-    if ($request->filled('sub_branch_id')) {
-        $query->where('sub_branch_id', $request->sub_branch_id);
-    }
-
-    // Ordenamiento
-    $sortBy = $request->get('sort_by', 'created_at');
-    $sortOrder = $request->get('sort_order', 'desc');
-    $query->orderBy($sortBy, $sortOrder);
-
-    // Paginación
-    $perPage = $request->get('per_page', 15);
-    $bookings = $query->paginate($perPage);
-
-    // Mapear los datos simplificados
-    $data = $bookings->map(function($booking) {
-        $payment = $booking->payments->first();
-        $quantityLabel = $this->getQuantityLabel($booking);
-
-        return [
-            'id' => $booking->id,
-            'payment_code' => $payment ? $payment->payment_code : 'Sin pago',
-            'booking_code' => $booking->booking_code,
-            'habitacion' => $booking->room->room_number ?? 'N/A',
-            'cliente' => $booking->customer->name ?? 'Sin cliente',
-            'fecha' => $booking->check_in ? $booking->check_in->format('d/m/Y H:i') : null,
-            
-            // ✅ PRECIO, CANTIDAD Y TOTAL
-            'precio_unitario' => (float) $booking->rate_per_hour,  // Precio por hora/día/noche
-            'quantity' => $booking->quantity,  // Cantidad (5, 7, 3)
-            'quantity_label' => $quantityLabel,  // "5 hora(s)", "7 día(s)"
-            'total_hours' => $booking->total_hours,  // Horas totales
-            'monto_total' => (float) $booking->room_subtotal,  // Total = precio × quantity
-            
-            'rate_type' => $booking->rateType ? [
-                'name' => $booking->rateType->name,
-                'code' => $booking->rateType->code,
-                'duration_hours' => $booking->rateType->duration_hours,
-            ] : null,
-            
-            'metodo_pago' => $payment && $payment->paymentMethod ? $payment->paymentMethod->name : 'N/A',
-            'estado' => $booking->status,
-            'estado_label' => $this->getStatusLabel($booking->status),
-        ];
-    });
-
-    return response()->json([
-        'success' => true,
-        'data' => $data,
-        'pagination' => [
-            'total' => $bookings->total(),
-            'per_page' => $bookings->perPage(),
-            'current_page' => $bookings->currentPage(),
-            'last_page' => $bookings->lastPage(),
-            'from' => $bookings->firstItem(),
-            'to' => $bookings->lastItem(),
-        ],
-    ]);
-}
-
-/**
- * ✅ Obtener etiqueta formateada de la cantidad
- */
-private function getQuantityLabel($booking)
-{
-    if (!$booking->rateType || !$booking->quantity) {
-        return $booking->quantity . ' unidad(es)';
-    }
-
-    $unit = strtoupper($booking->rateType->code);
-    
-    switch($unit) {
-        case 'HOUR':
-        case 'HOURLY':
-            return $booking->quantity . ' hora(s)';
-        case 'DAY':
-        case 'DAILY':
-            return $booking->quantity . ' día(s)';
-        case 'NIGHT':
-            return $booking->quantity . ' noche(s)';
-        case '12HOURS':
-        case 'HALF_DAY':
-            return $booking->quantity . ' bloque(s) de 12h';
-        case '8HOURS':
-            return $booking->quantity . ' bloque(s) de 8h';
-        default:
+    /**
+     * ✅ Obtener etiqueta formateada de la cantidad
+     */
+    private function getQuantityLabel($booking)
+    {
+        if (!$booking->rateType || !$booking->quantity) {
             return $booking->quantity . ' unidad(es)';
+        }
+
+        $unit = strtoupper($booking->rateType->code);
+        
+        switch($unit) {
+            case 'HOUR':
+            case 'HOURLY':
+                return $booking->quantity . ' hora(s)';
+            case 'DAY':
+            case 'DAILY':
+                return $booking->quantity . ' día(s)';
+            case 'NIGHT':
+                return $booking->quantity . ' noche(s)';
+            case '12HOURS':
+            case 'HALF_DAY':
+                return $booking->quantity . ' bloque(s) de 12h';
+            case '8HOURS':
+                return $booking->quantity . ' bloque(s) de 8h';
+            default:
+                return $booking->quantity . ' unidad(es)';
+        }
+    }
+    /**
+     * Extender tiempo de la reserva
+     * Maneja extensión anticipada o regularización de tiempo ya pasado
+     */
+    public function extenderTiempo(Request $request, Booking $booking)
+{
+    $request->validate([
+        'horas_adicionales' => 'required|numeric|min:0.5',
+    ]);
+
+    if ($booking->status !== Booking::STATUS_CHECKED_IN) {
+        return response()->json([
+            'success' => false,
+            'message' => 'Solo se puede extender tiempo en reservas activas'
+        ], 422);
+    }
+
+    try {
+        DB::beginTransaction();
+
+        $ahora = now();
+        $checkOutProgramado = $booking->check_out;
+        $horasAdicionales = $request->horas_adicionales;
+        
+        // ============================================
+        // 1. CALCULAR HORAS REALES ACTUALES (positivas)
+        // ============================================
+        $horasUsadasHastaAhora = $booking->check_in->diffInHours($ahora);
+        $horasContratadasOriginales = $booking->check_in->diffInHours($checkOutProgramado);
+        
+        // ============================================
+        // 2. VERIFICAR SI SE PASÓ DEL TIEMPO
+        // ============================================
+        $yaSePaso = $ahora->greaterThan($checkOutProgramado);
+        $horasExcedidas = 0;
+        $costoExcedido = 0;
+        
+        if ($yaSePaso) {
+            $horasExcedidas = ceil($ahora->diffInHours($checkOutProgramado));
+            $costoExcedido = $booking->rate_per_hour * $horasExcedidas;
+            
+            // Actualizar con el tiempo excedido
+            $booking->total_hours = $horasContratadasOriginales + $horasExcedidas;
+            $booking->room_subtotal = $booking->total_hours * $booking->rate_per_hour;
+            
+            $booking->notes = ($booking->notes ?? '') . 
+                "\n[" . $ahora->format('Y-m-d H:i') . "] ⚠️ Regularización: {$horasExcedidas}h ya usadas = S/ {$costoExcedido}";
+        }
+        
+        // ============================================
+        // 3. EXTENDER EL TIEMPO
+        // ============================================
+        // Extender desde el checkout programado (no desde ahora)
+        $nuevoCheckOut = $checkOutProgramado->copy()->addHours($horasAdicionales);
+        $costoExtension = $booking->rate_per_hour * $horasAdicionales;
+        
+        // Guardar checkout anterior
+        $checkOutAnterior = $booking->check_out;
+        
+        // ============================================
+        // 4. ACTUALIZAR BOOKING CON VALORES CORRECTOS
+        // ============================================
+        $booking->check_out = $nuevoCheckOut;
+        
+        // Calcular TOTAL de horas (originales + excedidas + extendidas)
+        $horasTotalesNuevas = $horasContratadasOriginales + $horasExcedidas + $horasAdicionales;
+        
+        // Asegurar que sean positivos
+        $booking->total_hours = max(0, $horasTotalesNuevas);
+        $booking->room_subtotal = $booking->total_hours * $booking->rate_per_hour;
+        
+        // Recalcular todos los totales
+        $booking->subtotal = $booking->room_subtotal + $booking->products_subtotal;
+        $booking->total_amount = $booking->subtotal + $booking->tax_amount - $booking->discount_amount;
+        
+        $booking->updated_by = auth()->id();
+        $booking->notes = ($booking->notes ?? '') . 
+            "\n[" . $ahora->format('Y-m-d H:i') . "] ✅ Extensión: +{$horasAdicionales}h. " .
+            "Nuevo checkout: " . $nuevoCheckOut->format('d-m-Y H:i A') .
+            "\nHoras totales: {$booking->total_hours}h, Subtotal: S/ {$booking->room_subtotal}";
+        
+        $booking->save();
+
+        DB::commit();
+
+        // ============================================
+        // 5. RESPUESTA
+        // ============================================
+        $respuesta = [
+            'success' => true,
+            'message' => $yaSePaso 
+                ? "Se regularizó {$horasExcedidas}h excedidas y se extendió {$horasAdicionales}h"
+                : "Tiempo extendido por {$horasAdicionales}h",
+            'data' => [
+                'booking_code' => $booking->booking_code,
+                'check_in' => $booking->check_in->format('d-m-Y H:i A'),
+                'checkout_anterior' => $checkOutAnterior->format('d-m-Y H:i A'),
+                'checkout_nuevo' => $nuevoCheckOut->format('d-m-Y H:i A'),
+                'horas_adicionales' => $horasAdicionales,
+                'costo_extension' => round($costoExtension, 2),
+                'resumen_financiero' => [
+                    'horas_totales' => $booking->total_hours,
+                    'dias_totales' => round($booking->total_hours / 24, 1),
+                    'room_subtotal' => round($booking->room_subtotal, 2),
+                    'total_amount' => round($booking->total_amount, 2),
+                    'paid_amount' => round($booking->paid_amount, 2),
+                    'saldo_pendiente' => round($booking->total_amount - $booking->paid_amount, 2),
+                ]
+            ]
+        ];
+        
+        if ($yaSePaso) {
+            $respuesta['data']['regularizacion'] = [
+                'horas_excedidas' => $horasExcedidas,
+                'costo_excedido' => round($costoExcedido, 2),
+                'total_adicional' => round($costoExcedido + $costoExtension, 2),
+            ];
+        }
+        
+        return response()->json($respuesta);
+
+    } catch (\Exception $e) {
+        DB::rollBack();
+        Log::error('Error al extender tiempo:', [
+            'booking_id' => $booking->id,
+            'error' => $e->getMessage(),
+        ]);
+        
+        return response()->json([
+            'success' => false,
+            'message' => 'Error al extender tiempo',
+            'error' => $e->getMessage()
+        ], 500);
+    }
+}
+    public function show(Booking $booking)
+{
+    try {
+        // Cargar relaciones
+        $booking->load([
+            'room.floor.subBranch.branch',
+            'customer',
+            'rateType',
+            'currency',
+            'consumptions.product',
+            'payments.paymentMethod',
+            'payments.currency',
+            'subBranch',
+        ]);
+
+        $ahora = now();
+        $checkInTime = $booking->check_in;
+        $checkOutProgramado = $booking->check_out;
+        
+        // ============================================
+        // CALCULAR TIEMPO TRANSCURRIDO
+        // ============================================
+        $minutosTranscurridos = $checkInTime->diffInMinutes($ahora);
+        $horasTranscurridas = $minutosTranscurridos / 60;
+        
+        // ============================================
+        // VERIFICAR SI YA SE PASÓ DEL TIEMPO
+        // ============================================
+        $yaSePaso = $ahora->greaterThan($checkOutProgramado);
+        
+        // ✅ CORRECCIÓN: Calcular minutos extra correctamente
+        if ($yaSePaso) {
+            // Si ya se pasó, calcular cuántos minutos DESPUÉS del checkout programado
+            $minutosExtra = $checkOutProgramado->diffInMinutes($ahora); // ← Invertido
+            $horasExtra = ceil($minutosExtra / 60);
+            $costoTiempoExtra = $horasExtra * $booking->rate_per_hour;
+            $minutosRestantes = 0;
+            $horasRestantes = 0;
+        } else {
+            // Si NO se pasó, calcular tiempo restante
+            $minutosExtra = 0;
+            $horasExtra = 0;
+            $costoTiempoExtra = 0;
+            $minutosRestantes = $ahora->diffInMinutes($checkOutProgramado);
+            $horasRestantes = $minutosRestantes / 60;
+        }
+        
+        // ============================================
+        // CALCULAR TOTALES FINANCIEROS
+        // ============================================
+        $totalPagado = $booking->payments()
+            ->where('status', 'completed')
+            ->sum('amount');
+        
+        $saldoPendiente = $booking->total_amount - $totalPagado;
+        
+        // Si hay tiempo extra, calcular el nuevo total
+        $totalConTiempoExtra = $booking->total_amount + $costoTiempoExtra;
+        $saldoConExtra = $totalConTiempoExtra - $totalPagado;
+
+        // ============================================
+        // DETERMINAR ACCIONES DISPONIBLES
+        // ============================================
+        $accionesDisponibles = [
+            'puede_extender' => $booking->status === Booking::STATUS_CHECKED_IN,
+            'puede_finalizar' => $booking->status === Booking::STATUS_CHECKED_IN,
+            'puede_agregar_consumo' => $booking->status === Booking::STATUS_CHECKED_IN,
+            'puede_cancelar' => in_array($booking->status, [
+                Booking::STATUS_PENDING, 
+                Booking::STATUS_CONFIRMED, 
+                Booking::STATUS_CHECKED_IN
+            ]),
+            'requiere_pago' => $saldoConExtra > 0, // ← Importante: usar saldo CON extra
+        ];
+
+        // ============================================
+        // PREPARAR RESPUESTA
+        // ============================================
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'booking' => [
+                    'id' => $booking->id,
+                    'booking_code' => $booking->booking_code,
+                    'status' => $booking->status,
+                    'status_label' => $this->getStatusLabel($booking->status),
+                    'check_in' => $booking->check_in->format('Y-m-d H:i:s'),
+                    'check_out' => $booking->check_out->format('Y-m-d H:i:s'),
+                    'actual_check_out' => $booking->actual_check_out?->format('Y-m-d H:i:s'),
+                    'total_hours' => $booking->total_hours,
+                    'actual_hours' => $booking->actual_hours,
+                    'rate_per_hour' => (float) $booking->rate_per_hour,
+                    'notes' => $booking->notes,
+                ],
+                'room' => [
+                    'id' => $booking->room->id,
+                    'room_number' => $booking->room->room_number,
+                    'name' => $booking->room->name,
+                    'status' => $booking->room->status,
+                    'floor' => $booking->room->floor->name ?? null,
+                    'sub_branch' => $booking->room->floor->subBranch->name ?? null,
+                    'branch' => $booking->room->floor->subBranch->branch->name ?? null,
+                ],
+                'customer' => [
+                    'id' => $booking->customer->id,
+                    'name' => $booking->customer->name,
+                    'document_type' => $booking->customer->document_type ?? null,
+                    'document_number' => $booking->customer->document_number ?? null,
+                    'phone' => $booking->customer->phone ?? null,
+                    'email' => $booking->customer->email ?? null,
+                ],
+                'rate_type' => [
+                    'id' => $booking->rateType->id,
+                    'name' => $booking->rateType->name,
+                    'code' => $booking->rateType->code,
+                    'duration_hours' => $booking->rateType->duration_hours,
+                ],
+                'currency' => [
+                    'id' => $booking->currency->id,
+                    'code' => $booking->currency->code,
+                    'symbol' => $booking->currency->symbol,
+                ],
+                'consumptions' => $booking->consumptions->map(function($consumption) {
+                    return [
+                        'id' => $consumption->id,
+                        'product_id' => $consumption->product_id,
+                        'product_name' => $consumption->product->name,
+                        'quantity' => (float) $consumption->quantity,
+                        'unit_price' => (float) $consumption->unit_price,
+                        'total_price' => (float) $consumption->total_price,
+                        'consumed_at' => $consumption->consumed_at->format('Y-m-d H:i:s'),
+                        'status' => $consumption->status,
+                    ];
+                }),
+                'payments' => $booking->payments->map(function($payment) {
+                    return [
+                        'id' => $payment->id,
+                        'payment_code' => $payment->payment_code,
+                        'amount' => (float) $payment->amount,
+                        'payment_method' => $payment->paymentMethod->name ?? $payment->payment_method,
+                        'payment_date' => $payment->payment_date->format('Y-m-d H:i:s'),
+                        'status' => $payment->status,
+                        'operation_number' => $payment->operation_number,
+                        'currency' => $payment->currency->code ?? 'PEN',
+                    ];
+                }),
+                'financial_summary' => [
+                    'room_subtotal' => (float) $booking->room_subtotal,
+                    'products_subtotal' => (float) $booking->products_subtotal,
+                    'tax_amount' => (float) $booking->tax_amount,
+                    'discount_amount' => (float) $booking->discount_amount,
+                    'subtotal' => (float) $booking->subtotal,
+                    'total_amount' => (float) $booking->total_amount,
+                    'paid_amount' => (float) $totalPagado,
+                    'balance' => (float) $saldoPendiente,
+                    
+                    // Tiempo extra
+                    'tiene_tiempo_extra' => $horasExtra > 0,
+                    'costo_tiempo_extra' => (float) $costoTiempoExtra,
+                    'total_con_extra' => (float) $totalConTiempoExtra,
+                    'saldo_con_extra' => (float) $saldoConExtra,
+                ],
+                'time_info' => [
+                    'check_in_formatted' => $checkInTime->format('d-m-Y H:i A'),
+                    'check_out_programado_formatted' => $checkOutProgramado->format('d-m-Y H:i A'),
+                    'hora_actual' => $ahora->format('d-m-Y H:i A'),
+                    
+                    // Tiempo transcurrido desde check-in
+                    'minutos_transcurridos' => $minutosTranscurridos,
+                    'horas_transcurridas' => round($horasTranscurridas, 2),
+                    
+                    // ¿Ya se pasó?
+                    'ya_se_paso_del_tiempo' => $yaSePaso,
+                    'minutos_extra' => $minutosExtra,
+                    'horas_extra' => $horasExtra,
+                    'costo_horas_extra' => (float) $costoTiempoExtra,
+                    
+                    // Tiempo restante (si no se pasó)
+                    'minutos_restantes' => $minutosRestantes,
+                    'horas_restantes' => round($horasRestantes, 2),
+                    
+                    // Comparación
+                    'horas_contratadas' => $booking->total_hours,
+                    'horas_usadas' => round($horasTranscurridas, 2),
+                    'porcentaje_usado' => round(($horasTranscurridas / $booking->total_hours) * 100, 2),
+                ],
+                'actions' => $accionesDisponibles,
+                'alerts' => $this->generateAlerts(
+                    $booking, 
+                    $yaSePaso, 
+                    $horasExtra, 
+                    $saldoConExtra, // ← Usar saldo CON extra
+                    $minutosRestantes
+                ),
+            ]
+        ]);
+
+    } catch (\Exception $e) {
+        Log::error('Error al mostrar booking:', [
+            'booking_id' => $booking->id,
+            'error' => $e->getMessage(),
+            'trace' => $e->getTraceAsString()
+        ]);
+        
+        return response()->json([
+            'success' => false,
+            'message' => 'Error al cargar la reserva',
+            'error' => $e->getMessage()
+        ], 500);
     }
 }
 
-/**
- * Obtener etiqueta del estado
- */
+// ============================================
+// MÉTODOS AUXILIARES
+// ============================================
 private function getStatusLabel($status)
 {
-    $labels = [
-        'pending' => 'Pendiente',
-        'confirmed' => 'Confirmada',
-        'checked_in' => 'En Curso',
-        'checked_out' => 'Finalizada',
-        'cancelled' => 'Cancelada',
-    ];
+    return match($status) {
+        Booking::STATUS_PENDING => 'Pendiente',
+        Booking::STATUS_CONFIRMED => 'Confirmada',
+        Booking::STATUS_CHECKED_IN => 'Activa',
+        Booking::STATUS_CHECKED_OUT => 'Finalizada',
+        Booking::STATUS_CANCELLED => 'Cancelada',
+        default => 'Desconocido',
+    };
+}
 
-    return $labels[$status] ?? $status;
+private function generateAlerts($booking, $yaSePaso, $horasExtra, $saldoPendiente, $minutosRestantes)
+{
+    $alerts = [];
+    
+    // ✅ ALERTA CRÍTICA: Tiempo excedido
+    if ($yaSePaso && $horasExtra > 0) {
+        $dias = intdiv($horasExtra, 24);
+        $horasRestantes = $horasExtra % 24;
+        
+        $tiempoExcedidoTexto = $dias > 0 
+            ? "{$dias} día(s) y {$horasRestantes} hora(s)" 
+            : "{$horasExtra} hora(s)";
+        
+        $costoExtra = $horasExtra * $booking->rate_per_hour;
+        
+        $alerts[] = [
+            'type' => 'danger',
+            'icon' => '⚠️',
+            'title' => '¡TIEMPO EXCEDIDO!',
+            'message' => "El cliente se ha excedido {$tiempoExcedidoTexto} del tiempo contratado",
+            'detail' => "Costo adicional: S/ " . number_format($costoExtra, 2),
+            'action' => 'extend_or_finish',
+            'action_text' => 'Extender tiempo o Finalizar servicio',
+        ];
+    }
+    
+    // ⚠️ ALERTA: Tiempo por vencer (menos de 30 minutos)
+    if (!$yaSePaso && $minutosRestantes <= 30 && $minutosRestantes > 0) {
+        $alerts[] = [
+            'type' => 'warning',
+            'icon' => '⏰',
+            'title' => 'Tiempo por vencer',
+            'message' => "Quedan solo " . round($minutosRestantes) . " minutos para el checkout",
+            'action' => 'extend_time',
+            'action_text' => 'Extender tiempo',
+        ];
+    }
+    
+    // 💰 ALERTA: Saldo pendiente
+    if ($saldoPendiente > 0) {
+        $alerts[] = [
+            'type' => 'info',
+            'icon' => '💰',
+            'title' => 'Saldo pendiente',
+            'message' => "Hay un saldo pendiente de S/ " . number_format($saldoPendiente, 2),
+            'action' => 'add_payment',
+            'action_text' => 'Registrar pago',
+        ];
+    }
+    
+    // 🛒 ALERTA: Consumos pendientes
+    $consumosPendientes = $booking->consumptions->where('status', 'pending')->count();
+    if ($consumosPendientes > 0) {
+        $alerts[] = [
+            'type' => 'warning',
+            'icon' => '🛒',
+            'title' => 'Consumos pendientes',
+            'message' => "Hay {$consumosPendientes} consumo(s) pendiente(s) de pago",
+            'action' => 'review_consumptions',
+            'action_text' => 'Revisar consumos',
+        ];
+    }
+    
+    return $alerts;
 }
 }

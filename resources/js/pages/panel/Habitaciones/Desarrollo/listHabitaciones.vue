@@ -139,7 +139,7 @@
 
         <Column selectionMode="multiple" style="width: 3rem" :exportable="false"></Column>
         
-        <Column field="codigo_pago" header="Código Pago" sortable style="min-width: 14rem">
+        <Column field="code" header="Código" sortable style="min-width: 14rem">
             <template #filter>
                 <InputText 
                     v-model="filters.codigo_pago" 
@@ -181,9 +181,15 @@
         
         <Column field="hora_fin" header="Hora Fin" sortable style="min-width: 12rem"></Column>
         
-        <Column field="costo_habitacion" header="Costo Hab." sortable style="min-width: 8rem">
+        <Column field="rate_per_unit" header="Costo Hab." sortable style="min-width: 8rem">
             <template #body="{ data }">
-                <span class="font-semibold">S/ {{ formatCurrency(data.costo_habitacion) }}</span>
+                <span class="font-semibold">S/ {{ formatCurrency(data.rate_per_unit) }}</span>
+            </template>
+        </Column>
+        <Column field="cantidad_texto" header="Tiempo" sortable style="min-width: 6rem"></Column>
+        <Column field="total_a_pagar" header="Total" sortable style="min-width: 8rem">
+            <template #body="{ data }">
+                <span class="font-bold">S/. {{ formatCurrency(data.total_a_pagar) }}</span>
             </template>
         </Column>
         
@@ -199,11 +205,6 @@
             </template>
         </Column>
         
-        <Column field="total_a_pagar" header="Total" sortable style="min-width: 8rem">
-            <template #body="{ data }">
-                <span class="font-bold">S/. {{ formatCurrency(data.total_a_pagar) }}</span>
-            </template>
-        </Column>
         
         <Column field="metodo_pago" header="Método Pago" sortable style="min-width: 12rem">
             <template #body="{ data }">

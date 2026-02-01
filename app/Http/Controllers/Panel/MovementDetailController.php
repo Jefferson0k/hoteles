@@ -51,22 +51,21 @@ class MovementDetailController extends Controller{
             $validated = $request->validated();
             $movement = Movement::find($validated['movement_id']);
             if (!$movement) {
-                return $this->errorResponse('El movimiento no existe.', 404);
+                return $this->fail('El movimiento no existe.', 404);
+            }
+            if ($validated['quantity_type'] === 'packages') {
+                $validated['units_per_box'] = null;
+                $validated['fractions'] = 0;
             }
             $movementDetail = MovementDetail::create($validated);
             DB::commit();
-            return $this->successResponse(
+            return $this->created(
                 new MovementDetailResource($movementDetail->load(['movement', 'product'])),
-                'Detalle de movimiento creado correctamente.',
-                201
+                'Detalle de movimiento creado correctamente.'
             );
         } catch (Exception $e) {
             DB::rollBack();
-            return $this->errorResponse(
-                'Error al crear el detalle del movimiento.',
-                500,
-                ['error' => $e->getMessage()]
-            );
+            return $this->exception($e, 'Error al crear el detalle del movimiento.');
         }
     }
     public function update(UpdateMovementDetailRequest $request, MovementDetail $movementDetail){

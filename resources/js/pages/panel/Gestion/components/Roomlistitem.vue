@@ -17,6 +17,7 @@
                     </span>
                     <div class="text-lg font-semibold mt-1">{{ room.room_type }}</div>
                 </div>
+
                 <div class="flex items-center gap-3 flex-wrap">
                     <Tag 
                         :value="getStatusLabel(room.status)" 
@@ -42,13 +43,15 @@
                     :check-in="room.check_in"
                     :check-out="room.check_out"
                 />
-                
+
                 <RoomActions
                     :room="room"
-                    @view-details="$emit('viewDetails', room.id, room.status)"
-                    @extend-time="$emit('extendTime', room.id)"
-                    @charge-extra="$emit('chargeExtra', room.id)"
-                    @finish-booking="$emit('finishBooking', room.id, room.room_number)"
+                    @view-details="$emit('view-details', room.id, room.status)"
+                    @room-settings="$emit('room-settings', room.id)"
+                    @sell-products="$emit('sell-products', room.id)"
+                    @extend-time="(bookingId, roomNumber) => $emit('extend-time', bookingId, roomNumber)"
+                    @finish-booking="(bookingId, roomNumber) => $emit('finish-booking', bookingId, roomNumber)"
+                    @start-booking="$emit('start-booking', room.id)"
                     @liberar="$emit('liberar', room.id)"
                 />
             </div>
@@ -71,11 +74,13 @@ defineProps<{
 }>();
 
 defineEmits<{
-    viewDetails: [roomId: number, roomStatus: string];
-    extendTime: [roomId: number];
-    chargeExtra: [roomId: number];
-    finishBooking: [roomId: number, roomNumber: string];
-    liberar: [roomId: number];
+    'view-details': [roomId: string, roomStatus: string];
+    'room-settings': [roomId: string];
+    'sell-products': [roomId: string];
+    'extend-time': [bookingId: string, roomNumber: string];  // ← ACTUALIZADO
+    'finish-booking': [bookingId: string, roomNumber: string]; // ← ACTUALIZADO
+    'start-booking': [roomId: string];
+    'liberar': [roomId: string];
 }>();
 
 const { getStatusLabel, getStatusSeverity } = useStatusLabel();

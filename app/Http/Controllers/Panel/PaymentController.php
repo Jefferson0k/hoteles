@@ -106,7 +106,6 @@ class PaymentController extends Controller{
         $payment = Payment::with(['booking.customer', 'currency', 'paymentMethod', 'cashRegister'])->findOrFail($id);
         return new PaymentShowResource($payment);
     }
-    public function imprimir(){
-
-    }
+    public function extendertiempo(){}
+    public function cobrartiempoextra(){}
 }

@@ -20,7 +20,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, onMounted, onUnmounted } from 'vue';
 import { useRoomManagementStore } from '../interface/Roommanagement';
 import { useRoomTimer } from '../interface/Roommanagement';
 
@@ -31,7 +31,17 @@ const props = defineProps<{
 }>();
 
 const store = useRoomManagementStore();
-const timer = useRoomTimer(store.currentTime);
+const timer = useRoomTimer();
+
+// Iniciar el intervalo cuando el componente se monta
+onMounted(() => {
+    store.startTimeInterval();
+});
+
+// Detener el intervalo cuando el componente se desmonta
+onUnmounted(() => {
+    store.stopTimeInterval();
+});
 
 const remainingTime = computed(() => timer.getRemainingTime(props.checkIn, props.checkOut));
 const isNear = computed(() => timer.isNear(props.checkOut));

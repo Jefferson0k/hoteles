@@ -111,7 +111,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted } from 'vue';
+import { computed, onMounted, onUnmounted, watch } from 'vue';
 import { useRoomServiceStore } from '../interface/Useroomservicestore';
 import type { StartServicePayload, FinishServicePayload, RoomData } from '../interface/Useroomservicestore';
 
@@ -178,7 +178,6 @@ const handleStartService = async (data: StartServicePayload) => {
     try {
         await store.startService(data);
     } catch (error) {
-        // Error handling is done in the store
         console.error('Error starting service:', error);
     }
 };
@@ -187,7 +186,6 @@ const handleFinishService = async (data: FinishServicePayload) => {
     try {
         await store.finishService(data);
     } catch (error) {
-        // Error handling is done in the store
         console.error('Error finishing service:', error);
     }
 };
@@ -196,12 +194,34 @@ const handleFinishService = async (data: FinishServicePayload) => {
 // LIFECYCLE HOOKS
 // ==========================================
 onMounted(async () => {
+    // CRÍTICO: Limpiar el store ANTES de inicializar con nuevos datos
+    store.cleanup();
+    
     if (props.roomData) {
         await store.initialize(props.roomData);
     }
 });
 
+// ==========================================
+// WATCH: Detectar cambio de habitación
+// ==========================================
+watch(() => props.roomData?.room_number, async (newRoomNumber, oldRoomNumber) => {
+    // Si cambió el número de habitación, reiniciar todo
+    if (newRoomNumber && newRoomNumber !== oldRoomNumber) {
+        console.log(`Cambio de habitación detectado: ${oldRoomNumber} → ${newRoomNumber}`);
+        
+        // Limpiar estado anterior
+        store.cleanup();
+        
+        // Reinicializar con los nuevos datos
+        if (props.roomData) {
+            await store.initialize(props.roomData);
+        }
+    }
+}, { immediate: false });
+
 onUnmounted(() => {
+    // Limpiar al desmontar el componente
     store.cleanup();
 });
 </script>

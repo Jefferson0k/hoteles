@@ -136,7 +136,13 @@ Route::middleware(['auth', 'verified','cash.register.open'])->group(function () 
 
         Route::get('/cajas/usuarios/{id}', [CashSession::class, 'view'])->name('cajas.usuarios');
         Route::get('/huespedes', [ClienteWeb::class, 'view'])->name('huespedes.view');
+        Route::get('/habitacion/{id}/nueva-reserva', [RoomFloorWeb::class, 'view'])->name('nueva.view');
+    });
 
+    Route::prefix('consumo-pendiente')->group(function () {
+        Route::post('/add', [ProductoController::class, 'addProducto']);
+        Route::put('/{id}', [ProductoController::class, 'updateProducto']);
+        Route::delete('/{id}', [ProductoController::class, 'deleteProducto']);
     });
 
     Route::prefix('reports')->group(function () {
@@ -235,11 +241,15 @@ Route::middleware(['auth', 'verified','cash.register.open'])->group(function () 
     
     Route::get('currencies', [CurrencyController::class, 'index']);
 
+    Route::prefix('detalles')->group(function () {
+        Route::get('/bookings/{booking}/habitacion', [BookingController::class, 'show']);
+    });
+
     Route::prefix('bookings')->group(function () {
         Route::get('/', [BookingController::class, 'index']);
         Route::post('/', [BookingController::class, 'store']);
         Route::post('/{booking}/add-consumption', [BookingController::class, 'addConsumption']);
-        Route::post('/{booking}/extend-time', [BookingController::class, 'extendTime']);
+        Route::post('/{booking}/extend-time', [BookingController::class, 'extenderTiempo']);
         Route::post('/{booking}/finish', [BookingController::class, 'finishService']);
         Route::post('/rooms/{room}/change-status', [RoomStatusController::class, 'changeRoomStatus']);
         Route::post('/rooms/{room}/mark-ready', [RoomStatusController::class, 'markAsReady']);

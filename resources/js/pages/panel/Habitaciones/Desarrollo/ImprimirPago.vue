@@ -153,7 +153,7 @@ const generatePDF = async () => {
         y += 4;
         
         pdf.setFontSize(9);
-        pdf.text(p.payment_code, 41, y, { align: 'center' });
+        pdf.text(p.booking?.booking_code || 'N/A', 41, y, { align: 'center' });
         y += 4;
         
         pdf.line(margin, y, 77, y);
@@ -332,22 +332,82 @@ const generatePDF = async () => {
             y += lineHeight;
         }
         y += 2;
+        const hasPaymentNotes = data.notas && data.notas.trim();
+        const hasBookingNotes = data.notes_habitacion && data.notes_habitacion.trim();
 
-        // Notas
-        if (p.notes) {
+        if (hasPaymentNotes || hasBookingNotes) {
+            // Verificar espacio antes de empezar la sección
+            if (y > 250) {
+                pdf.addPage();
+                y = 5;
+            }
+            
             pdf.line(margin, y, 77, y);
             y += 4;
             
             pdf.setFont('helvetica', 'bold');
+            pdf.setFontSize(7.5);
             pdf.text('NOTAS:', margin, y);
             y += lineHeight;
             
-            pdf.setFont('helvetica', 'normal');
-            const notasLines = pdf.splitTextToSize(p.notes, 70);
-            notasLines.forEach(line => {
-                pdf.text(line, margin, y);
+            pdf.setFontSize(6.5);
+            
+            // Notas del pago
+            if (hasPaymentNotes) {
+                pdf.setFont('helvetica', 'bold');
+                pdf.text('• Pago:', margin, y);
                 y += lineHeight;
-            });
+                
+                pdf.setFont('helvetica', 'normal');
+                const paymentLines = data.notas.trim().split('\n');
+                
+                paymentLines.forEach(linea => {
+                    if (linea.trim()) {
+                        const lines = pdf.splitTextToSize(linea.trim(), 65);
+                        lines.forEach(line => {
+                            if (y > 285) {
+                                pdf.addPage();
+                                y = 5;
+                            }
+                            pdf.text(line, margin + 2, y);
+                            y += lineHeight;
+                        });
+                    }
+                });
+                y += 2;
+            }
+            
+            // Notas de la reserva
+            if (hasBookingNotes) {
+                if (y > 280) {
+                    pdf.addPage();
+                    y = 5;
+                }
+                
+                pdf.setFont('helvetica', 'bold');
+                pdf.text('• Reserva:', margin, y);
+                y += lineHeight;
+                
+                pdf.setFont('helvetica', 'normal');
+                const bookingLines = data.notes_habitacion.trim().split('\n');
+                
+                bookingLines.forEach(linea => {
+                    if (linea.trim()) {
+                        const lines = pdf.splitTextToSize(linea.trim(), 65);
+                        lines.forEach(line => {
+                            if (y > 285) {
+                                pdf.addPage();
+                                y = 5;
+                            }
+                            pdf.text(line, margin + 2, y);
+                            y += lineHeight;
+                        });
+                    }
+                });
+                y += 2;
+            }
+            
+            pdf.setFontSize(7.5);
             y += 2;
         }
 

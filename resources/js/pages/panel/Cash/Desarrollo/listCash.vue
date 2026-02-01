@@ -1,10 +1,9 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { router } from '@inertiajs/vue3' // Importar router de Inertia
+import { router } from '@inertiajs/vue3'
 import { useCashRegisterStore } from './cashRegister.store'
 import { FilterMatchMode } from '@primevue/core/api'
-import Message from 'primevue/message';
-// PrimeVue Components
+import Message from 'primevue/message'
 import DataTable from 'primevue/datatable'
 import Column from 'primevue/column'
 import Tag from 'primevue/tag'
@@ -13,10 +12,20 @@ import IconField from 'primevue/iconfield'
 import InputIcon from 'primevue/inputicon'
 import Button from 'primevue/button'
 import Menu from 'primevue/menu'
+import { useToast } from 'primevue/usetoast'
 
+const toast = useToast()
 const dt = ref()
 const menu = ref()
-const store = useCashRegisterStore()
+
+// Inicializar el store de forma segura
+let store: ReturnType<typeof useCashRegisterStore> | null = null
+
+try {
+  store = useCashRegisterStore()
+} catch (error) {
+  console.error('Error initializing store:', error)
+}
 
 const filters = ref({
   'global': { value: null, matchMode: FilterMatchMode.CONTAINS }
@@ -56,23 +65,76 @@ const toggleMenu = (event: any, cashRegister: any) => {
 // Métodos de acción
 const handleEdit = (cashRegister: any) => {
   console.log('Editar caja:', cashRegister)
-  // Implementar lógica de edición
+  // TODO: Implementar lógica de edición
+  toast.add({
+    severity: 'info',
+    summary: 'Editar',
+    detail: `Editando caja: ${cashRegister.name}`,
+    life: 3000
+  })
 }
 
-const handleDelete = (cashRegister: any) => {
-  console.log('Eliminar caja:', cashRegister)
-  // Implementar lógica de eliminación
+const handleDelete = async (cashRegister: any) => {
+  if (!store) {
+    toast.add({
+      severity: 'error',
+      summary: 'Error',
+      detail: 'Store no inicializado',
+      life: 3000
+    })
+    return
+  }
+
+  if (confirm(`¿Está seguro de eliminar la caja "${cashRegister.name}"?`)) {
+    const result = await store.delete(cashRegister.id)
+    
+    if (result.success) {
+      toast.add({
+        severity: 'success',
+        summary: 'Éxito',
+        detail: result.message || 'Caja eliminada correctamente',
+        life: 3000
+      })
+    } else {
+      toast.add({
+        severity: 'error',
+        summary: 'Error',
+        detail: result.message || 'Error al eliminar la caja',
+        life: 3000
+      })
+    }
+  }
 }
 
 const handleHistory = (cashRegister: any) => {
   console.log('Ver historial:', cashRegister)
-  // Redirigir a la página de historial con el ID usando Inertia
   router.visit(`/panel/cajas/usuarios/${cashRegister.id}`)
 }
 
-// Función para cargar las cajas (expuesta para ser llamada desde el componente padre)
+// Función para cargar las cajas
 const loadCashRegisters = async () => {
-  await store.fetchAll()
+  if (!store) {
+    console.error('Store no disponible')
+    toast.add({
+      severity: 'error',
+      summary: 'Error',
+      detail: 'No se pudo inicializar el store',
+      life: 3000
+    })
+    return
+  }
+
+  try {
+    await store.fetchAll()
+  } catch (error) {
+    console.error('Error loading cash registers:', error)
+    toast.add({
+      severity: 'error',
+      summary: 'Error',
+      detail: 'Error al cargar las cajas registradoras',
+      life: 3000
+    })
+  }
 }
 
 // Exponer el método para que pueda ser llamado desde el componente padre
@@ -86,10 +148,20 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="">
-    <Message severity="error" v-if="store.error">{{ store.error }}</Message>
+  <div>
+    <!-- Mostrar error si el store no se inicializó -->
+    <Message severity="error" v-if="!store">
+      Error: Store no inicializado. Verifique la configuración de Pinia.
+    </Message>
+
+    <!-- Mostrar errores del store -->
+    <Message severity="error" v-if="store && store.error" @close="store.clearError()">
+      {{ store.error }}
+    </Message>
+
     <!-- Tabla de datos -->
     <DataTable 
+      v-if="store"
       ref="dt" 
       :value="store.items" 
       :loading="store.loading" 
@@ -102,6 +174,7 @@ onMounted(async () => {
       :rowsPerPageOptions="[5, 10, 25, 50]"
       currentPageReportTemplate="Mostrando {first} a {last} de {totalRecords} cajas" 
       class="p-datatable-sm">
+      
       <!-- Header de la tabla -->
       <template #header>
         <div class="flex flex-wrap gap-3 items-center justify-between p-2">
@@ -121,7 +194,7 @@ onMounted(async () => {
       <template #empty>
         <div class="text-center py-12">
           <i class="pi pi-inbox text-gray-300 text-5xl mb-3"></i>
-          <p class="text-lg">
+          <p class="text-lg text-gray-500">
             No hay cajas registradoras disponibles
           </p>
         </div>
@@ -137,18 +210,25 @@ onMounted(async () => {
 
       <!-- Columnas -->
       <Column selectionMode="multiple" style="width: 3rem" :exportable="false" />
-      <Column field="name" header="Nombre" sortable/>
+      <Column field="name" header="Nombre" sortable />
+      
       <Column header="Activo" sortable field="is_active">
         <template #body="{ data }">
-          <Tag :value="data.is_active ? 'Activo' : 'Inactivo'" :severity="data.is_active ? 'success' : 'danger'"
-            :icon="data.is_active ? 'pi pi-check-circle' : 'pi pi-times-circle'" />
+          <Tag 
+            :value="data.is_active ? 'Activo' : 'Inactivo'" 
+            :severity="data.is_active ? 'success' : 'danger'"
+            :icon="data.is_active ? 'pi pi-check-circle' : 'pi pi-times-circle'" 
+          />
         </template>
       </Column>
 
       <Column header="Estado" sortable field="is_occupied">
         <template #body="{ data }">
-          <Tag :value="data.is_occupied ? 'Ocupada' : 'Libre'" :severity="data.is_occupied ? 'warn' : 'success'"
-            :icon="data.is_occupied ? 'pi pi-lock' : 'pi pi-unlock'" />
+          <Tag 
+            :value="data.is_occupied ? 'Ocupada' : 'Libre'" 
+            :severity="data.is_occupied ? 'warn' : 'success'"
+            :icon="data.is_occupied ? 'pi pi-lock' : 'pi pi-unlock'" 
+          />
         </template>
       </Column>
 
@@ -156,20 +236,26 @@ onMounted(async () => {
         <template #body="{ data }">
           <div v-if="data.occupied_by" class="flex items-center gap-2">
             <i class="pi pi-user text-gray-400 text-sm"></i>
-            <span class="">
-              {{ data.occupied_by.name }}
-            </span>
+            <span>{{ data.occupied_by.name }}</span>
           </div>
-          <span v-else class="italic">Sin asignar</span>
+          <span v-else class="text-gray-400 italic">Sin asignar</span>
         </template>
       </Column>
 
-      <Column field="created_at" header="Fecha Creación" sortable/>
+      <Column field="created_at" header="Fecha Creación" sortable />
+      
       <!-- Columna de Acciones con menú de 3 puntos -->
-      <Column>
+      <Column header="Acciones" :exportable="false">
         <template #body="{ data }">
-          <Button icon="pi pi-ellipsis-v" text rounded severity="secondary" @click="toggleMenu($event, data)"
-            class="hover:bg-gray-100" aria-label="Opciones" />
+          <Button 
+            icon="pi pi-ellipsis-v" 
+            text 
+            rounded 
+            severity="secondary" 
+            @click="toggleMenu($event, data)"
+            class="hover:bg-gray-100" 
+            aria-label="Opciones" 
+          />
         </template>
       </Column>
     </DataTable>

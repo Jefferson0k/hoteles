@@ -1,10 +1,11 @@
 <?php
 
-namespace App\Http\Resources;
+namespace App\Http\Resources\Payment;
 
 use App\Http\Resources\Booking\BookingResource;
 use App\Http\Resources\CashRegister\CashRegisterResource;
 use App\Http\Resources\Currency\CurrencyResource;
+use App\Http\Resources\UserResource;
 use Illuminate\Http\Resources\Json\JsonResource;
 
 class PaymentResource extends JsonResource

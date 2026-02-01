@@ -84,7 +84,7 @@ class FloorRoomResource extends JsonResource
                     // Cliente y reserva
                     'customer' => $customerName,
                     'booking_code' => $activeBooking?->booking_code,
-                    
+                    'booking_id' => $activeBooking?->id,
                     // Información adicional
                     'total_hours_contracted' => $activeBooking?->total_hours,
                     'rate_type' => $activeBooking?->rateType?->name,

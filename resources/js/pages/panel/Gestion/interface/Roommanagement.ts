@@ -1,12 +1,13 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
+import axios from 'axios';
 
 // ============================================
 // INTERFACES Y TIPOS
 // ============================================
 
 export interface Room {
-    id: number;
+    id: string;  // ← Este es el ID de la habitación
     room_number: string;
     room_type: string;
     status: RoomStatus;
@@ -14,6 +15,13 @@ export interface Room {
     customer?: string;
     check_in?: string;
     check_out?: string;
+    booking_id?: string;  // ← Este es el ID de la reserva
+    booking_code?: string;
+    elapsed_time?: string;
+    elapsed_minutes?: number;
+    remaining_time?: string;
+    total_hours_contracted?: number;
+    rate_type?: string;
 }
 
 export interface Floor {
@@ -56,13 +64,6 @@ export const STATUS_SEVERITIES: Record<RoomStatus, 'success' | 'danger' | 'warn'
 // UTILIDADES DE TIEMPO
 // ============================================
 
-/**
- * Calcula el tiempo restante (regresivo) hasta el check-out
- * @param checkInTime - Hora de entrada
- * @param checkOutTime - Hora de salida
- * @param currentTime - Hora actual
- * @returns Tiempo formateado como HH:MM:SS (con signo negativo si expiró)
- */
 export const calculateRemainingTime = (
     checkInTime: string | null,
     checkOutTime: string | null,
@@ -75,25 +76,17 @@ export const calculateRemainingTime = (
     const checkOut = new Date(checkOutTime);
     const diff = checkOut.getTime() - currentTime.getTime();
     
-    // Si el tiempo ya expiró (diff negativo), mostrar con signo negativo
     const isExpired = diff < 0;
     const absDiff = Math.abs(diff);
     
-    // Convertir a horas, minutos y segundos
     const hours = Math.floor(absDiff / (1000 * 60 * 60));
     const minutes = Math.floor((absDiff % (1000 * 60 * 60)) / (1000 * 60));
     const seconds = Math.floor((absDiff % (1000 * 60)) / 1000);
     
-    // Formatear con ceros a la izquierda y signo negativo si aplica
     const sign = isExpired ? '-' : '';
     return `${sign}${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
 };
 
-/**
- * Formatea la hora de entrada
- * @param checkInTime - Hora de entrada
- * @returns Hora formateada como "Entrada: HH:MM"
- */
 export const formatCheckIn = (checkInTime: string | null): string => {
     if (!checkInTime) {
         return '-';
@@ -106,11 +99,6 @@ export const formatCheckIn = (checkInTime: string | null): string => {
     return `Entrada: ${hours}:${minutes}`;
 };
 
-/**
- * Formatea la hora de salida
- * @param checkOutTime - Hora de salida
- * @returns Hora formateada como "Salida: HH:MM"
- */
 export const formatCheckOut = (checkOutTime: string | null): string => {
     if (!checkOutTime) {
         return '-';
@@ -123,12 +111,6 @@ export const formatCheckOut = (checkOutTime: string | null): string => {
     return `Salida: ${hours}:${minutes}`;
 };
 
-/**
- * Verifica si el checkout está próximo (5 minutos o menos)
- * @param checkOutTime - Hora de salida
- * @param currentTime - Hora actual
- * @returns true si faltan 5 minutos o menos
- */
 export const isNearCheckout = (checkOutTime: string | null, currentTime: Date): boolean => {
     if (!checkOutTime) {
         return false;
@@ -136,26 +118,16 @@ export const isNearCheckout = (checkOutTime: string | null, currentTime: Date): 
     
     const checkOut = new Date(checkOutTime);
     
-    // Validar que la fecha sea válida
     if (isNaN(checkOut.getTime())) {
         return false;
     }
     
     const diff = checkOut.getTime() - currentTime.getTime();
-    
-    // Convertir a minutos
     const minutes = Math.floor(diff / (1000 * 60));
     
-    // Alertar si faltan 5 minutos o menos para el checkout
     return minutes <= 5 && minutes > 0;
 };
 
-/**
- * Verifica si el tiempo de checkout ya expiró
- * @param checkOutTime - Hora de salida
- * @param currentTime - Hora actual
- * @returns true si el tiempo ya pasó
- */
 export const isCheckoutExpired = (checkOutTime: string | null, currentTime: Date): boolean => {
     if (!checkOutTime) {
         return false;
@@ -163,23 +135,15 @@ export const isCheckoutExpired = (checkOutTime: string | null, currentTime: Date
     
     const checkOut = new Date(checkOutTime);
     
-    // Validar que la fecha sea válida
     if (isNaN(checkOut.getTime())) {
         return false;
     }
     
     const diff = checkOut.getTime() - currentTime.getTime();
     
-    // Retorna true si el tiempo ya pasó (diff es negativo o cero)
     return diff <= 0;
 };
 
-/**
- * Verifica si el checkout tiene datos sospechosos (muy lejos en el futuro)
- * @param checkOutTime - Hora de salida
- * @param currentTime - Hora actual
- * @returns true si faltan más de 48 horas
- */
 export const isSuspiciousCheckout = (checkOutTime: string | null, currentTime: Date): boolean => {
     if (!checkOutTime) {
         return false;
@@ -189,7 +153,6 @@ export const isSuspiciousCheckout = (checkOutTime: string | null, currentTime: D
     const diff = checkOut.getTime() - currentTime.getTime();
     const hours = Math.floor(diff / (1000 * 60 * 60));
     
-    // Si faltan más de 48 horas, es sospechoso
     return hours > 48;
 };
 
@@ -203,23 +166,33 @@ export const useRoomManagementStore = defineStore('roomManagement', () => {
     const layout = ref<LayoutType>('grid');
     const loading = ref<boolean>(true);
     const currentTime = ref<Date>(new Date());
-    const showLiberarDialog = ref<boolean>(false);
-    const showExtenderDialog = ref<boolean>(false);
+    
+    // Diálogos
+    const liberarDialog = ref<boolean>(false);
+    const extenderDialog = ref<boolean>(false);
     const showCobrarDialog = ref<boolean>(false);
-    const showFinalizarDialog = ref<boolean>(false);
-    const selectedRoomId = ref<number | null>(null);
+    const finalizarDialog = ref<boolean>(false);
+    
+    // Selección
+    const selectedRoomId = ref<string | null>(null);
+    const selectedBookingId = ref<string | null>(null);
     const selectedRoomNumber = ref<string | null>(null);
+    
+    // Variable para el intervalo
+    let timeInterval: ReturnType<typeof setInterval> | null = null;
 
     // Computed
     const layoutOptions = computed(() => ['list', 'grid'] as const);
 
-    // Acciones
+    // ============================================
+    // ACCIONES - FETCH
+    // ============================================
+
     const fetchFloors = async (): Promise<void> => {
         try {
             loading.value = true;
-            const response = await fetch('/floors-rooms');
-            const result = await response.json();
-            floors.value = result.data;
+            const response = await axios.get('/floors-rooms');
+            floors.value = response.data.data;
         } catch (error) {
             console.error('Error al cargar pisos y habitaciones:', error);
             floors.value = [];
@@ -228,62 +201,123 @@ export const useRoomManagementStore = defineStore('roomManagement', () => {
         }
     };
 
+    // ============================================
+    // ACCIONES - TIEMPO
+    // ============================================
+
     const updateCurrentTime = (): void => {
         currentTime.value = new Date();
     };
 
-    const openLiberarDialog = (roomId: number): void => {
-        selectedRoomId.value = roomId;
-        showLiberarDialog.value = true;
+    const startTimeInterval = (): void => {
+        if (timeInterval) {
+            clearInterval(timeInterval);
+        }
+        
+        currentTime.value = new Date();
+        
+        timeInterval = setInterval(() => {
+            currentTime.value = new Date();
+        }, 1000);
     };
 
-    const openExtenderDialog = (roomId: number): void => {
-        selectedRoomId.value = roomId;
-        showExtenderDialog.value = true;
+    const stopTimeInterval = (): void => {
+        if (timeInterval) {
+            clearInterval(timeInterval);
+            timeInterval = null;
+        }
     };
 
-    const openCobrarDialog = (roomId: number): void => {
+    // ============================================
+    // ACCIONES - ABRIR DIÁLOGOS
+    // ============================================
+
+    const openLiberarDialog = (roomId: string, roomNumber: string): void => {
         selectedRoomId.value = roomId;
+        selectedRoomNumber.value = roomNumber;
+        liberarDialog.value = true;
+    };
+
+    const openExtenderDialog = (bookingId: string, roomNumber: string): void => {
+        selectedBookingId.value = bookingId;
+        selectedRoomNumber.value = roomNumber;
+        extenderDialog.value = true;
+    };
+
+    const openCobrarDialog = (bookingId: string, roomNumber: string): void => {
+        selectedBookingId.value = bookingId;
+        selectedRoomNumber.value = roomNumber;
         showCobrarDialog.value = true;
     };
 
-    const openFinalizarDialog = (roomId: number, roomNumber: string): void => {
-        selectedRoomId.value = roomId;
+    const openFinalizarDialog = (bookingId: string, roomNumber: string): void => {
+        selectedBookingId.value = bookingId;
         selectedRoomNumber.value = roomNumber;
-        showFinalizarDialog.value = true;
+        finalizarDialog.value = true;
     };
 
     const closeAllDialogs = (): void => {
-        showLiberarDialog.value = false;
-        showExtenderDialog.value = false;
+        liberarDialog.value = false;
+        extenderDialog.value = false;
         showCobrarDialog.value = false;
-        showFinalizarDialog.value = false;
+        finalizarDialog.value = false;
+        selectedRoomId.value = null;
+        selectedBookingId.value = null;
+        selectedRoomNumber.value = null;
+    };
+
+    // ============================================
+    // ACCIONES - API CALLS
+    // ============================================
+
+    const liberarHabitacion = async (roomId: string): Promise<void> => {
+        try {
+            const { data } = await axios.post(`/cuarto/${roomId}/liberar`);
+            
+            // Actualiza la habitación en el estado local
+            floors.value.forEach(floor => {
+                const room = floor.rooms.find(r => r.id === roomId);
+                if (room) {
+                    room.status = 'available';
+                }
+            });
+
+            return data;
+        } catch (error) {
+            console.error('Error al liberar habitación:', error);
+            throw error;
+        }
+    };
+
+    // ============================================
+    // ACCIONES - HANDLERS DE DIÁLOGOS
+    // ============================================
+
+    const handleRoomLiberated = async (): Promise<void> => {
+        await fetchFloors();
+        liberarDialog.value = false;
         selectedRoomId.value = null;
         selectedRoomNumber.value = null;
     };
 
-    const handleRoomLiberated = async (): Promise<void> => {
-        await fetchFloors();
-        showLiberarDialog.value = false;
-        selectedRoomId.value = null;
-    };
-
     const handleTimeExtended = async (): Promise<void> => {
         await fetchFloors();
-        showExtenderDialog.value = false;
-        selectedRoomId.value = null;
+        extenderDialog.value = false;
+        selectedBookingId.value = null;
+        selectedRoomNumber.value = null;
     };
 
     const handleExtraTimeCharged = async (): Promise<void> => {
         await fetchFloors();
         showCobrarDialog.value = false;
-        selectedRoomId.value = null;
+        selectedBookingId.value = null;
+        selectedRoomNumber.value = null;
     };
 
     const handleBookingFinished = async (): Promise<void> => {
         await fetchFloors();
-        showFinalizarDialog.value = false;
-        selectedRoomId.value = null;
+        finalizarDialog.value = false;
+        selectedBookingId.value = null;
         selectedRoomNumber.value = null;
     };
 
@@ -293,24 +327,36 @@ export const useRoomManagementStore = defineStore('roomManagement', () => {
         layout,
         loading,
         currentTime,
-        showLiberarDialog,
-        showExtenderDialog,
+        liberarDialog,
+        extenderDialog,
         showCobrarDialog,
-        showFinalizarDialog,
+        finalizarDialog,
         selectedRoomId,
+        selectedBookingId,
         selectedRoomNumber,
         
         // Computed
         layoutOptions,
         
-        // Acciones
+        // Acciones - Fetch
         fetchFloors,
+        
+        // Acciones - Tiempo
         updateCurrentTime,
+        startTimeInterval,
+        stopTimeInterval,
+        
+        // Acciones - Diálogos
         openLiberarDialog,
         openExtenderDialog,
         openCobrarDialog,
         openFinalizarDialog,
         closeAllDialogs,
+        
+        // Acciones - API
+        liberarHabitacion,
+        
+        // Handlers
         handleRoomLiberated,
         handleTimeExtended,
         handleExtraTimeCharged,
@@ -322,9 +368,6 @@ export const useRoomManagementStore = defineStore('roomManagement', () => {
 // COMPOSABLES
 // ============================================
 
-/**
- * Composable para obtener la etiqueta de estado de una habitación
- */
 export const useStatusLabel = () => {
     const getStatusLabel = (status: RoomStatus): string => {
         return STATUS_LABELS[status] || status;
@@ -340,24 +383,23 @@ export const useStatusLabel = () => {
     };
 };
 
-/**
- * Composable para manejar el tiempo de las habitaciones
- */
-export const useRoomTimer = (currentTime: Date) => {
+export const useRoomTimer = () => {
+    const store = useRoomManagementStore();
+    
     const getRemainingTime = (checkIn: string | null, checkOut: string | null) => {
-        return calculateRemainingTime(checkIn, checkOut, currentTime);
+        return calculateRemainingTime(checkIn, checkOut, store.currentTime);
     };
 
     const isNear = (checkOut: string | null) => {
-        return isNearCheckout(checkOut, currentTime);
+        return isNearCheckout(checkOut, store.currentTime);
     };
 
     const isExpired = (checkOut: string | null) => {
-        return isCheckoutExpired(checkOut, currentTime);
+        return isCheckoutExpired(checkOut, store.currentTime);
     };
 
     const isSuspicious = (checkOut: string | null) => {
-        return isSuspiciousCheckout(checkOut, currentTime);
+        return isSuspiciousCheckout(checkOut, store.currentTime);
     };
 
     return {

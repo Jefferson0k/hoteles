@@ -264,7 +264,7 @@
                     <Message severity="secondary" :closable="false">
                         <div>
                             <strong>Notas:</strong>
-                            <p class="mt-1">{{ pago.notes }}</p>
+                            <p class="mt-1">{{pago.booking?.notes }}</p>
                         </div>
                     </Message>
                 </div>

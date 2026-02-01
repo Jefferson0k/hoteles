@@ -1,5 +1,4 @@
 <template>
-
   <Head title="Habitaciones" />
   <AppLayouth>
     <div>
@@ -7,9 +6,17 @@
         <Espera />
       </template>
       <template v-else>
-          <indexMenuRecepcionista />
+        <indexMenuRecepcionista />
         <div class="card">
           <listGestion />
+          <liberarhabitacion 
+            v-model:visible="store.liberarDialog"
+            :roomId="store.selectedRoomId"
+            :roomNumber="store.selectedRoomNumber"
+            @room-liberated="store.handleRoomLiberated"
+          />
+          <extendertiempo />
+          <finalizar />
         </div>
       </template>
     </div>
@@ -23,6 +30,12 @@ import { Head } from '@inertiajs/vue3';
 import Espera from '@/components/Espera.vue';
 import listGestion from './Desarrollo/listGestion.vue';
 import indexMenuRecepcionista from '../MenuRecepcionista/indexMenuRecepcionista.vue';
+import liberarhabitacion from './Desarrollo/liberarhabitacion.vue';
+import extendertiempo from './Desarrollo/extendertiempo.vue';
+import finalizar from './Desarrollo/finalizar.vue';
+import { useRoomManagementStore } from './interface/Roommanagement';
+
+const store = useRoomManagementStore();
 const isLoading = ref(true);
 
 onMounted(() => {

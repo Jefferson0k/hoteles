@@ -719,6 +719,8 @@ export const useRoomServiceStore = defineStore('roomService', () => {
     // ==========================================
 
     const initialize = async (room: RoomData): Promise<void> => {
+        console.log('🚀 Inicializando habitación:', room.room_number);
+        
         roomData.value = room;
         
         try {
@@ -729,7 +731,10 @@ export const useRoomServiceStore = defineStore('roomService', () => {
             if (selectedRate.value && !isTimerRunning.value) {
                 remainingSeconds.value = calculateTotalSeconds();
             }
+            
+            console.log('✅ Inicialización completa');
         } catch (error: any) {
+            console.error('❌ Error en inicialización:', error);
             toast.add({
                 severity: 'error',
                 summary: 'Error',
@@ -739,21 +744,62 @@ export const useRoomServiceStore = defineStore('roomService', () => {
         }
     };
 
+    /**
+     * 🔥 MÉTODO CRÍTICO: Limpia TODOS los timers y resetea el estado
+     * Llámalo antes de cambiar de habitación o al desmontar el componente
+     */
     const cleanup = (): void => {
+        console.log('🧹 Limpiando store...');
+        
+        // 1. Detener timers primero
         stopLocalTimer();
         stopSyncInterval();
+        
+        // 2. Resetear todo el estado
+        resetState();
+        
+        console.log('✅ Store completamente limpio');
     };
 
+    /**
+     * Resetea todo el estado a valores iniciales
+     */
     const resetState = (): void => {
+        // Room Data
+        roomData.value = null;
+        
+        // Service State
         selectedRate.value = null;
         timeAmount.value = 1;
+        voucherType.value = 'boleta';
+        
+        // Customer & Products
         selectedClient.value = null;
         products.value = [];
-        voucherType.value = 'boleta';
-        currentBookingId.value = null;
+        
+        // Timer State
         isTimerRunning.value = false;
         remainingSeconds.value = 0;
         totalSeconds.value = 0;
+        
+        // Booking State
+        currentBookingId.value = null;
+        
+        // UI State
+        showStartDialog.value = false;
+        showFinishDialog.value = false;
+        processingPayment.value = false;
+        processingFinish.value = false;
+        
+        // NOTA: NO reseteamos estos porque queremos mantenerlos entre habitaciones
+        // para no tener que recargarlos cada vez:
+        // - currencies
+        // - selectedCurrency
+        // - rateTypes
+        // - paymentMethods
+        // - userCashRegister
+        
+        console.log('✅ Estado reseteado a valores iniciales');
     };
 
     // ==========================================

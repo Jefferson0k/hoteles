@@ -2,9 +2,8 @@ import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import axios from 'axios';
 import { router } from '@inertiajs/vue3';
-import { useToast } from 'primevue/usetoast';
 
-// Interfaces
+// Interfaces (se mantienen igual)
 interface SubBranch {
   id: string;
   name: string;
@@ -36,8 +35,6 @@ interface ValidationErrors {
 }
 
 export const useCashRegisterStore = defineStore('cashRegister', () => {
-  const toast = useToast();
-
   // State - Inicializar errors con las propiedades definidas
   const availableCashRegisters = ref<CashRegister[]>([]);
   const selectedCashRegister = ref<CashRegister | null>(null);
@@ -61,6 +58,18 @@ export const useCashRegisterStore = defineStore('cashRegister', () => {
     availableCashRegisters.value.filter(register => !register.is_occupied)
   );
 
+  // Helper para mostrar notificaciones
+  const showNotification = (severity: 'success' | 'error' | 'info' | 'warn', summary: string, detail: string, life: number = 3000) => {
+    // Disparar un evento personalizado que el componente puede escuchar
+    const event = new CustomEvent('show-toast', {
+      detail: { severity, summary, detail, life }
+    });
+    window.dispatchEvent(event);
+    
+    // También mostrar en consola para debug
+    console.log(`[${severity.toUpperCase()}] ${summary}: ${detail}`);
+  };
+
   // Actions
   const loadCashRegisters = async () => {
     loadingCashRegisters.value = true;
@@ -82,12 +91,11 @@ export const useCashRegisterStore = defineStore('cashRegister', () => {
       }
     } catch (error: any) {
       console.error('Error loading cash registers:', error);
-      toast.add({ 
-        severity: 'error', 
-        summary: 'Error', 
-        detail: error.response?.data?.message || 'Error al cargar las cajas disponibles', 
-        life: 3000 
-      });
+      showNotification(
+        'error',
+        'Error', 
+        error.response?.data?.message || 'Error al cargar las cajas disponibles'
+      );
     } finally {
       loadingCashRegisters.value = false;
     }
@@ -130,12 +138,12 @@ export const useCashRegisterStore = defineStore('cashRegister', () => {
       );
 
       if (response.data.success) {
-        toast.add({
-          severity: 'success',
-          summary: 'Éxito',
-          detail: 'Caja aperturada correctamente. Redirigiendo a habitaciones...',
-          life: 2000
-        });
+        showNotification(
+          'success',
+          'Éxito',
+          'Caja aperturada correctamente. Redirigiendo a habitaciones...',
+          2000
+        );
 
         // Reset state
         resetForm();
@@ -156,12 +164,7 @@ export const useCashRegisterStore = defineStore('cashRegister', () => {
       }
       
       const errorMessage = error.response?.data?.message || 'Error al aperturar la caja';
-      toast.add({ 
-        severity: 'error', 
-        summary: 'Error', 
-        detail: errorMessage, 
-        life: 3000 
-      });
+      showNotification('error', 'Error', errorMessage);
     } finally {
       isOpening.value = false;
     }

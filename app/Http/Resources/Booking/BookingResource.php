@@ -3,7 +3,7 @@
 namespace App\Http\Resources\Booking;
 
 use App\Http\Resources\BookingConsumption\BookingConsumptionResource;
-use App\Http\Resources\PaymentResource;
+use App\Http\Resources\Payment\PaymentResource;
 use Illuminate\Http\Resources\Json\JsonResource;
 
 class BookingResource extends JsonResource
