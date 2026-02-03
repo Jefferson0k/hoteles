@@ -205,21 +205,32 @@ class ReportController extends Controller{
 
     // 🔧 FUNCIÓN PARA OBTENER FILTROS
     private function getFiltros(Request $request)
-    {
-        $month = $request->input('month', now()->month);
-        $year = $request->input('year', now()->year);
-        
-        $startDate = Carbon::create($year, $month, 1)->startOfMonth();
-        $endDate = Carbon::create($year, $month, 1)->endOfMonth();
-
+{
+    // Si vienen date_from y date_to, usarlos directamente
+    if ($request->has('date_from') && $request->has('date_to')) {
         return [
             'subBranchId' => Auth::user()->sub_branch_id,
-            'startDate' => $startDate,
-            'endDate' => $endDate,
-            'month' => $month,
-            'year' => $year
+            'startDate' => Carbon::parse($request->input('date_from'))->startOfDay(),
+            'endDate' => Carbon::parse($request->input('date_to'))->endOfDay(),
+            'month' => Carbon::parse($request->input('date_from'))->month,
+            'year' => Carbon::parse($request->input('date_from'))->year,
         ];
     }
+    
+    // Si no, usar month y year (para mantener compatibilidad con otras funciones)
+    $month = $request->input('month', now()->month);
+    $year = $request->input('year', now()->year);
+    $startDate = Carbon::create($year, $month, 1)->startOfMonth();
+    $endDate = Carbon::create($year, $month, 1)->endOfMonth();
+    
+    return [
+        'subBranchId' => Auth::user()->sub_branch_id,
+        'startDate' => $startDate,
+        'endDate' => $endDate,
+        'month' => $month,
+        'year' => $year
+    ];
+}
 
     // 💸 EGRESOS - TOTALES POR MES
     public function egresos(Request $request){

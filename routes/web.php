@@ -211,7 +211,7 @@ Route::middleware(['auth', 'verified','cash.register.open'])->group(function () 
     Route::get('/bookings/{booking}/ticket', [BookingController::class, 'ticket']);
     Route::post('/bookings/{booking}/start', [RoomStatusController::class, 'startRoom']);
     Route::post('/bookings/{booking}/extend', [RoomStatusController::class, 'extendTime']);
-    Route::post('/bookings/{booking}/finish', [RoomStatusController::class, 'finishRoom']);
+    #Route::post('/bookings/{booking}/finish', [RoomStatusController::class, 'finishRoom']);
 
     // Agregar productos/consumos a una reserva existente
     Route::post('bookings/{booking}/consumptions', [BookingConsumptionController::class, 'addConsumptions'])

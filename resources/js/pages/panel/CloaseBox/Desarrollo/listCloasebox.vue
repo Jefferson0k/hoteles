@@ -68,7 +68,7 @@
                         placeholder="Ingrese observaciones sobre el cierre de caja..." class="w-full" />
                 </div>
 
-                <Button label="Cerrar Caja" icon="pi pi-lock" @click="cashRegisterStore.closeCashRegister"
+                <Button label="Cerrar Caja" icon="pi pi-lock" @click="handleCloseCashRegister"
                     :loading="cashRegisterStore.isClosing" :disabled="!cashRegisterStore.canCloseCashRegister"
                     severity="danger" class="w-full mt-3" size="large" />
             </div>
@@ -78,7 +78,7 @@
 
 <script setup lang="ts">
 import { onMounted, computed } from 'vue';
-import { usePage } from '@inertiajs/vue3';
+import { usePage, router } from '@inertiajs/vue3';
 import Avatar from 'primevue/avatar';
 import Button from 'primevue/button';
 import InputNumber from 'primevue/inputnumber';
@@ -101,6 +101,15 @@ const cashRegisterStore = useCashRegisterStore();
 
 const viewUserReport = () => {
     console.log('Ver último reporte del usuario');
+};
+
+const handleCloseCashRegister = async () => {
+    try {
+        await cashRegisterStore.closeCashRegister();
+        router.reload();
+    } catch (error) {
+        console.error('Error al cerrar caja:', error);
+    }
 };
 
 onMounted(async () => {

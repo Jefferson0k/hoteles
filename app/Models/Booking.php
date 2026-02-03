@@ -25,7 +25,7 @@ class Booking extends Model implements AuditableContract{
         'check_in', 'check_out', 'total_hours', 'rate_per_unit', 'subtotal','quantity',
         'tax_amount', 'discount_amount', 'total_amount', 'paid_amount','customers_id',
         'status', 'notes', 'cancelled_at', 'cancellation_reason', 'cancelled_by','rate_per_hour',
-        'room_subtotal','products_subtotal','tax_amount','discount_amount','total_amount','updated_by',
+        'room_subtotal','products_subtotal','tax_amount','discount_amount','updated_by',
         'sub_branch_id'
     ];
 

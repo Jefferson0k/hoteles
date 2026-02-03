@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import axios from 'axios';
+import { router } from '@inertiajs/vue3';
 
 interface PaymentMethod {
   id: string;
@@ -41,15 +42,13 @@ export const useCashRegisterStore = defineStore('cashRegister', () => {
   const loadPaymentMethods = async () => {
     loadingPaymentMethods.value = true;
     errors.value = {};
-
     try {
       const response = await axios.get<PaymentMethodsResponse>('/payments/methods');
-      
       if (response.data.success) {
         paymentMethods.value = response.data.data
           .filter(method => method.is_active)
           .sort((a, b) => a.sort_order - b.sort_order);
-
+        
         // Inicializar montos en 0
         paymentMethods.value.forEach(method => {
           if (!(method.id in paymentAmounts.value)) {
@@ -87,7 +86,8 @@ export const useCashRegisterStore = defineStore('cashRegister', () => {
           .map(([payment_method_id, counted_amount]) => ({
             payment_method_id,
             counted_amount
-          }))
+          })),
+        notes: notes.value || null
       };
 
       const response = await axios.post('/cash-register-sessions/close', payload);
@@ -96,23 +96,22 @@ export const useCashRegisterStore = defineStore('cashRegister', () => {
         // Limpiar formulario
         paymentAmounts.value = {};
         notes.value = '';
-
+        
         // Mostrar mensaje de éxito
         console.log('✅ Caja cerrada exitosamente', response.data);
+
+        // Redirigir a la página de apertura
+        router.visit('/panel/aperturar');
         
-        // Aquí puedes agregar redirección o mostrar un toast
-        // router.push('/dashboard');
         return response.data;
       }
     } catch (error: any) {
       console.error('Error closing cash register:', error);
-      
       if (error.response?.data?.errors) {
         errors.value = error.response.data.errors;
       } else {
         errors.value.general = error.response?.data?.message || 'Error al cerrar la caja';
       }
-      
       throw error;
     } finally {
       isClosing.value = false;
@@ -136,11 +135,9 @@ export const useCashRegisterStore = defineStore('cashRegister', () => {
     loadingPaymentMethods,
     isClosing,
     errors,
-
     // Computed
     totalClosingAmount,
     canCloseCashRegister,
-
     // Actions
     loadPaymentMethods,
     setPaymentAmount,

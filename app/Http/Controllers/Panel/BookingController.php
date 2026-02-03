@@ -250,25 +250,32 @@ class BookingController extends Controller{
             $extraHoursCeil = 0;
             $tieneRecargo = false;
 
-            // Si hay tiempo extra, cobrarlo
+            // Si hay tiempo extra, calcularlo pero NO aplicarlo todavía a los montos
             if ($extraHours > 0) {
                 $extraHoursCeil = ceil($extraHours);
                 $extraAmount = $extraHoursCeil * $booking->rate_per_hour;
                 $tieneRecargo = true;
                 
-                // Actualizar reserva
-                $booking->total_hours += $extraHoursCeil;
-                $booking->room_subtotal += $extraAmount;
-                $booking->subtotal = $booking->room_subtotal + $booking->products_subtotal;
-                $booking->total_amount = $booking->subtotal + $booking->tax_amount - $booking->discount_amount;
-                
+                // SOLO registrar en notas - NO modificar room_subtotal ni total_amount
                 $booking->notes = ($booking->notes ?? '') . 
-                    "\n[" . $checkOutReal->format('Y-m-d H:i') . "] ⏰ Tiempo extra al checkout: {$extraHoursCeil}h (real: " . 
-                    round($extraHours, 2) . "h) = S/ {$extraAmount}";
+                    "\n[" . $checkOutReal->format('Y-m-d H:i') . "] ⏰ Tiempo extra detectado: {$extraHoursCeil}h (real: " . 
+                    round($extraHours, 2) . "h) = S/ {$extraAmount} (pendiente de cobro)";
             }
 
-            // Procesar pagos si vienen
+            // Procesar pagos si vienen (aquí SÍ se actualizan los montos si hay pago)
             if ($request->has('payments') && count($request->payments) > 0) {
+                // Si hay recargo, aplicar los montos SOLO si se está pagando
+                if ($tieneRecargo) {
+                    $booking->total_hours += $extraHoursCeil;
+                    $booking->room_subtotal += $extraAmount;
+                    $booking->subtotal = $booking->room_subtotal + $booking->products_subtotal;
+                    $booking->total_amount = $booking->subtotal + $booking->tax_amount - $booking->discount_amount;
+                    
+                    // Actualizar nota para indicar que se cobrará
+                    $booking->notes = ($booking->notes ?? '') . 
+                        "\n[" . $checkOutReal->format('Y-m-d H:i') . "] 💰 Se aplicará cobro de {$extraHoursCeil}h extras = S/ {$extraAmount}";
+                }
+                
                 foreach ($request->payments as $paymentData) {
                     $paymentMethod = PaymentMethod::find($paymentData['payment_method_id']);
                     
@@ -311,7 +318,7 @@ class BookingController extends Controller{
                     'success' => false,
                     'requires_payment' => true,
                     'message' => $tieneRecargo 
-                        ? "⚠️ Cliente se excedió {$extraHoursCeil}h. Hay saldo pendiente." 
+                        ? "⚠️ Cliente se excedió {$extraHoursCeil}h. Hay saldo pendiente de S/ {$balance}" 
                         : "⚠️ Hay un saldo pendiente de pago",
                     'data' => [
                         'balance' => round($balance, 2),
@@ -354,7 +361,7 @@ class BookingController extends Controller{
             return response()->json([
                 'success' => true,
                 'message' => $tieneRecargo 
-                    ? "✅ Servicio finalizado con {$extraHoursCeil}h extras. Habitación en limpieza." 
+                    ? "✅ Servicio finalizado con {$extraHoursCeil}h extras registradas. Habitación en limpieza." 
                     : '✅ Servicio finalizado. Habitación en limpieza.',
                 'data' => [
                     'booking' => $booking->fresh(['room', 'customer', 'consumptions', 'payments']),
