@@ -4,7 +4,7 @@
 
 ### Plataforma moderna y completa para la administración de hoteles
 
-[![Laravel](https://img.shields.io/badge/Laravel-11.x-FF2D20?style=for-the-badge&logo=laravel&logoColor=white)](https://laravel.com)
+[![Laravel](https://img.shields.io/badge/Laravel-12.x-FF2D20?style=for-the-badge&logo=laravel&logoColor=white)](https://laravel.com)
 [![Vue.js](https://img.shields.io/badge/Vue.js-3.x-4FC08D?style=for-the-badge&logo=vue.js&logoColor=white)](https://vuejs.org)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-336791?style=for-the-badge&logo=postgresql&logoColor=white)](https://www.postgresql.org)
 [![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://www.docker.com)
@@ -37,7 +37,7 @@ Sistema integral de gestión hotelera desarrollado con tecnologías modernas y e
 <tr>
 <td align="center" width="25%">
 <img src="https://laravel.com/img/logomark.min.svg" width="60" height="60" alt="Laravel"/>
-<br><strong>Laravel</strong>
+<br><strong>Laravel 12</strong>
 <br>Backend Framework
 </td>
 <td align="center" width="25%">
@@ -220,6 +220,6 @@ Este proyecto está bajo licencia de **uso educativo y personal**.
 
 ### ⭐ Si te ha sido útil, considera darle una estrella al proyecto
 
-**Hecho con ❤️ usando Laravel + Vue + Docker**
+**Hecho con ❤️ usando Laravel 12 + Vue 3 + Docker**
 
 </div>
