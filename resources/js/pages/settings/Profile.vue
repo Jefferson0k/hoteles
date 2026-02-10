@@ -23,7 +23,7 @@
             </template>
             <template v-else>
                 <div class="mb-6">
-                    <h1 class="text-2xl font-semibold mb-1">Configuración</h1>
+                    <h1 class="text-2xl font-semibold mb-1">Configuración de la cuenta</h1>
                     <p class="py-4">Administra tu perfil y la configuración de tu cuenta</p>
                 </div>
                 <Tabs value="0">

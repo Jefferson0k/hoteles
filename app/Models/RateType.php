@@ -14,43 +14,42 @@ class RateType extends Model implements Auditable
     use HasFactory, HasUuids, SoftDeletes, HasAuditFields, \OwenIt\Auditing\Auditable;
 
     protected $fillable = [
-        'name', 'code', 'duration_hours', 'is_active'
+        'name',
+        'code',
+        'description',
+        'is_active',
+        'created_by',
+        'updated_by',
+        'deleted_by',
     ];
 
     protected $casts = [
-        'duration_hours' => 'integer',
         'is_active' => 'boolean',
     ];
 
-    const CODE_HOUR = 'HOUR';
-    const CODE_DAY = 'DAY';
-    const CODE_NIGHT = 'NIGHT';
+    public const CODE_HOUR = 'HOUR';
+    public const CODE_DAY = 'DAY';
+    public const CODE_NIGHT = 'NIGHT';
 
-    // Relaciones
-    public function bookings()
-    {
-        return $this->hasMany(Booking::class);
-    }
-
-    public function customPrices()
-    {
-        return $this->hasMany(BranchRoomTypePrice::class);
-    }
-
+    // Scopes
     public function scopeActive($query)
     {
         return $query->where('is_active', true);
     }
 
-    public function calculateTotalHours($checkIn, $checkOut)
+    public function scopeByCode($query, $code)
     {
-        $diffInHours = $checkIn->diffInHours($checkOut);
-        
-        return match($this->code) {
-            self::CODE_HOUR => max(1, $diffInHours),
-            self::CODE_DAY => max(1, ceil($diffInHours / 24)),
-            self::CODE_NIGHT => 1,
-            default => $diffInHours
-        };
+        return $query->where('code', strtoupper($code));
     }
+
+    public function setCodeAttribute($value)
+    {
+        $this->attributes['code'] = strtoupper($value);
+    }
+
+    // Relaciones (agrega las que necesites)
+    // public function branchRateTypePrices()
+    // {
+    //     return $this->hasMany(BranchRateTypePrice::class);
+    // }
 }

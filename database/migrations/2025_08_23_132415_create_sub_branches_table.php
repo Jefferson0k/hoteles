@@ -30,6 +30,7 @@ return new class extends Migration {
 
             // Índices
             $table->index(['branch_id', 'is_active', 'deleted_at']);
+            $table->index('code');
             $table->index('created_by');
             $table->index('updated_by');
         });

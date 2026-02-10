@@ -34,25 +34,33 @@ class RoomTypeController extends Controller{
     public function store(StoreRoomTypeRequest $request){
         try {
             DB::beginTransaction();
-            $roomType = RoomType::create([
-                'name' => $request->name,
-                'description' => $request->description,
-                'capacity' => $request->capacity,
-                'base_price_per_hour' => $request->base_price_per_hour,
-                'base_price_per_day' => $request->base_price_per_day,
-                'base_price_per_night' => $request->base_price_per_night,
-                'is_active' => $request->boolean('is_active', true),
-            ]);
+            $roomType = RoomType::create($request->validated());
             DB::commit();
             return response()->json([
                 'message' => 'Tipo de habitación registrado correctamente.',
                 'data' => new RoomTypeResource($roomType),
             ], 201);
-            
         } catch (Throwable $e) {
             DB::rollBack();
             return response()->json([
                 'message' => 'Error al registrar el tipo de habitación.',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+    }
+    public function update(UpdateRoomTypeRequest $request, RoomType $roomType){
+        try {
+            DB::beginTransaction();
+            $roomType->update($request->validated());
+            DB::commit();
+            return response()->json([
+                'message' => 'Tipo de habitación actualizado correctamente.',
+                'data' => new RoomTypeResource($roomType->fresh()),
+            ], 200);
+        } catch (Throwable $e) {
+            DB::rollBack();
+            return response()->json([
+                'message' => 'Error al actualizar el tipo de habitación.',
                 'error' => $e->getMessage(),
             ], 500);
         }
@@ -67,32 +75,6 @@ class RoomTypeController extends Controller{
         } catch (Throwable $e) {
             return response()->json([
                 'message' => 'Error al obtener el tipo de habitación.',
-                'error' => $e->getMessage(),
-            ], 500);
-        }
-    }
-    public function update(UpdateRoomTypeRequest $request, RoomType $roomType){
-        try {
-            DB::beginTransaction();
-            $roomType->update([
-                'name' => $request->name,
-                'description' => $request->description,
-                'capacity' => $request->capacity,
-                'base_price_per_hour' => $request->base_price_per_hour,
-                'base_price_per_day' => $request->base_price_per_day,
-                'base_price_per_night' => $request->base_price_per_night,
-                'is_active' => $request->boolean('is_active', $roomType->is_active),
-            ]);
-            DB::commit();
-            return response()->json([
-                'message' => 'Tipo de habitación actualizado correctamente.',
-                'data' => new RoomTypeResource($roomType->fresh()),
-            ], 200);
-            
-        } catch (Throwable $e) {
-            DB::rollBack();
-            return response()->json([
-                'message' => 'Error al actualizar el tipo de habitación.',
                 'error' => $e->getMessage(),
             ], 500);
         }

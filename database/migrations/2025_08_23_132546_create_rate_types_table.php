@@ -10,16 +10,15 @@ return new class extends Migration
     {
         Schema::create('rate_types', function (Blueprint $table) {
             $table->uuid('id')->primary();
-            $table->string('name');
-            $table->string('code')->unique();
-            $table->integer('duration_hours')->nullable();
+            $table->string('name'); // Por Horas, Por Día, Por Noche
+            $table->string('code')->unique(); // HOURLY, DAILY, NIGHTLY
+            $table->text('description')->nullable();
             $table->boolean('is_active')->default(true);
             
             // Auditoría
             $table->unsignedBigInteger('created_by')->nullable();
             $table->unsignedBigInteger('updated_by')->nullable();
             $table->unsignedBigInteger('deleted_by')->nullable();
-
             $table->timestamps();
             $table->softDeletes();
             

@@ -1,0 +1,1 @@
+export { RoomTypeService } from './roomType.service';

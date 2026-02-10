@@ -20,38 +20,27 @@
                 <small v-if="errors.description" class="text-red-500">{{ errors.description }}</small>
             </div>
 
-            <div class="flex flex-col gap-2">
-                <label for="capacity" class="font-semibold">Capacidad <span class="text-red-500">*</span></label>
-                <InputNumber id="capacity" v-model="roomType.capacity" :min="1" :invalid="!!errors.capacity" />
-                <small v-if="errors.capacity" class="text-red-500">{{ errors.capacity }}</small>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div class="flex flex-col gap-2">
+                    <label for="capacity" class="font-semibold">Capacidad <span class="text-red-500">*</span></label>
+                    <InputNumber id="capacity" v-model="roomType.capacity" :min="1" :invalid="!!errors.capacity" />
+                    <small v-if="errors.capacity" class="text-red-500">{{ errors.capacity }}</small>
+                </div>
+
+                <div class="flex flex-col gap-2">
+                    <label for="max_capacity" class="font-semibold">Capacidad Máxima</label>
+                    <InputNumber id="max_capacity" v-model="roomType.max_capacity" :min="1"
+                        :invalid="!!errors.max_capacity" />
+                    <small v-if="errors.max_capacity" class="text-red-500">{{ errors.max_capacity }}</small>
+                    <small class="text-gray-500">Debe ser mayor o igual a la capacidad</small>
+                </div>
             </div>
 
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div class="flex flex-col gap-2">
-                    <label for="price_hour" class="font-semibold">Precio/Hora <span class="text-red-500">*</span></label>
-                    <InputNumber id="price_hour" v-model="roomType.base_price_per_hour" mode="currency" currency="PEN"
-                        locale="es-PE" :invalid="!!errors.base_price_per_hour" />
-                    <small class="text-gray-500">60 minutos</small>
-                    <small v-if="errors.base_price_per_hour" class="text-red-500">{{ errors.base_price_per_hour
-                        }}</small>
-                </div>
-
-                <div class="flex flex-col gap-2">
-                    <label for="price_day" class="font-semibold">Precio/Día <span class="text-red-500">*</span></label>
-                    <InputNumber id="price_day" v-model="roomType.base_price_per_day" mode="currency" currency="PEN"
-                        locale="es-PE" :invalid="!!errors.base_price_per_day" />
-                    <small class="text-gray-500">24 horas</small>
-                    <small v-if="errors.base_price_per_day" class="text-red-500">{{ errors.base_price_per_day }}</small>
-                </div>
-
-                <div class="flex flex-col gap-2">
-                    <label for="price_night" class="font-semibold">Precio/Noche <span class="text-red-500">*</span></label>
-                    <InputNumber id="price_night" v-model="roomType.base_price_per_night" mode="currency" currency="PEN"
-                        locale="es-PE" :invalid="!!errors.base_price_per_night" />
-                    <small class="text-gray-500">12 horas</small>
-                    <small v-if="errors.base_price_per_night" class="text-red-500">{{ errors.base_price_per_night
-                        }}</small>
-                </div>
+            <div class="flex flex-col gap-2">
+                <label for="category" class="font-semibold">Categoría</label>
+                <Select id="category" v-model="roomType.category" :options="categories"
+                    placeholder="Seleccione una categoría" :invalid="!!errors.category" />
+                <small v-if="errors.category" class="text-red-500">{{ errors.category }}</small>
             </div>
 
             <div class="flex items-center gap-2">
@@ -61,18 +50,21 @@
         </div>
 
         <template #footer>
-            <Button label="Cancelar" icon="pi pi-times" text @click="hideDialog" :disabled="loading"  severity="secondary" />
-            <Button :label="isEditing ? 'Actualizar' : 'Guardar'" icon="pi pi-check" @click="saveProduct" severity="contrast"
-                :loading="loading" />
+            <Button label="Cancelar" icon="pi pi-times" text @click="hideDialog" :disabled="loading"
+                severity="secondary" />
+            <Button :label="isEditing ? 'Actualizar' : 'Guardar'" icon="pi pi-check" @click="saveProduct"
+                severity="contrast" :loading="loading" />
         </template>
     </Dialog>
 
     <Toast />
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref } from 'vue';
-import axios from 'axios';
+import { useRoomTypeStore } from '../stores/roomType.store';
+import { ROOM_TYPE_CATEGORIES } from '../interfaces';
+import type { IRoomTypeForm, IRoomTypeFormErrors } from '../interfaces';
 import Toolbar from 'primevue/toolbar';
 import Button from 'primevue/button';
 import Dialog from 'primevue/dialog';
@@ -80,25 +72,32 @@ import InputText from 'primevue/inputtext';
 import Textarea from 'primevue/textarea';
 import InputNumber from 'primevue/inputnumber';
 import Checkbox from 'primevue/checkbox';
+import Select from 'primevue/select';
 import Toast from 'primevue/toast';
 import { useToast } from 'primevue/usetoast';
 
 const toast = useToast();
-const emit = defineEmits(['refresh']);
+const emit = defineEmits<{
+    refresh: []
+}>();
+
+const roomTypeStore = useRoomTypeStore();
 
 const productDialog = ref(false);
 const loading = ref(false);
-const errors = ref({});
+const errors = ref<IRoomTypeFormErrors>({});
 const isEditing = ref(false);
-const editingId = ref(null);
+const editingId = ref<string | null>(null);
 
-const roomType = ref({
+const categories = ref<string[]>(ROOM_TYPE_CATEGORIES);
+
+const roomType = ref<IRoomTypeForm>({
     name: '',
+    code: '',
     description: '',
     capacity: 1,
-    base_price_per_hour: 0,
-    base_price_per_day: 0,
-    base_price_per_night: 0,
+    max_capacity: null,
+    category: null,
     is_active: true
 });
 
@@ -109,17 +108,26 @@ const openNew = () => {
     productDialog.value = true;
 };
 
-const openEdit = async (id) => {
+const openEdit = async (id: string) => {
     try {
         isEditing.value = true;
         editingId.value = id;
         loading.value = true;
 
-        const response = await axios.get(`/room-types/${id}`);
-        roomType.value = { ...response.data.data };
+        const data = await roomTypeStore.fetchRoomTypeById(id);
+
+        roomType.value = {
+            name: data.name,
+            code: data.code,
+            description: data.description,
+            capacity: data.capacity,
+            max_capacity: data.max_capacity,
+            category: data.category,
+            is_active: data.is_active
+        };
 
         productDialog.value = true;
-    } catch (error) {
+    } catch (error: any) {
         toast.add({
             severity: 'error',
             summary: 'Error',
@@ -139,11 +147,11 @@ const hideDialog = () => {
 const resetForm = () => {
     roomType.value = {
         name: '',
+        code: '',
         description: '',
         capacity: 1,
-        base_price_per_hour: 0,
-        base_price_per_day: 0,
-        base_price_per_night: 0,
+        max_capacity: null,
+        category: null,
         is_active: true
     };
     errors.value = {};
@@ -157,22 +165,27 @@ const saveProduct = async () => {
         errors.value = {};
 
         let response;
-        if (isEditing.value) {
-            response = await axios.put(`/room-types/${editingId.value}`, roomType.value);
+        if (isEditing.value && editingId.value) {
+            response = await roomTypeStore.updateRoomType(editingId.value, roomType.value);
+            toast.add({
+                severity: 'success',
+                summary: 'Éxito',
+                detail: response.message || 'Tipo de habitación actualizado correctamente',
+                life: 3000
+            });
         } else {
-            response = await axios.post('/room-types', roomType.value);
+            response = await roomTypeStore.createRoomType(roomType.value);
+            toast.add({
+                severity: 'success',
+                summary: 'Éxito',
+                detail: response.message || 'Tipo de habitación creado correctamente',
+                life: 3000
+            });
         }
-
-        toast.add({
-            severity: 'success',
-            summary: 'Éxito',
-            detail: response.data.message,
-            life: 3000
-        });
 
         hideDialog();
         emit('refresh');
-    } catch (error) {
+    } catch (error: any) {
         if (error.response?.status === 422) {
             errors.value = error.response.data.errors || {};
             toast.add({

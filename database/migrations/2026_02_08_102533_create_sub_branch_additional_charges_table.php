@@ -8,28 +8,31 @@ return new class extends Migration
 {
     public function up()
     {
-        Schema::create('system_settings', function (Blueprint $table) {
+        Schema::create('sub_branch_additional_charges', function (Blueprint $table) {
             $table->uuid('id')->primary();
-            $table->string('key')->unique();
-            $table->text('value');
-            $table->string('type')->default('string');
-            $table->string('group')->default('general');
-            $table->string('description')->nullable();
-            $table->boolean('is_public')->default(false);
+            $table->uuid('sub_branch_id');
+            
+            // Información del cargo
+            $table->string('concept');
+            $table->text('description')->nullable();
+            $table->decimal('amount', 10, 2);
             $table->boolean('is_active')->default(true);
             
             // Auditoría
             $table->unsignedBigInteger('created_by')->nullable();
             $table->unsignedBigInteger('updated_by')->nullable();
             $table->unsignedBigInteger('deleted_by')->nullable();
-
-
             $table->timestamps();
             $table->softDeletes();
             
+            // Foreign key
+            $table->foreign('sub_branch_id')
+                  ->references('id')
+                  ->on('sub_branches')
+                  ->cascadeOnDelete();
+            
             // Índices
-            $table->index(['group', 'is_active', 'deleted_at']);
-            $table->index(['is_public', 'deleted_at']);
+            $table->index(['sub_branch_id', 'is_active', 'deleted_at'], 'idx_additional_charges');
             $table->index('created_by');
             $table->index('updated_by');
         });
@@ -37,6 +40,6 @@ return new class extends Migration
 
     public function down()
     {
-        Schema::dropIfExists('system_settings');
+        Schema::dropIfExists('sub_branch_additional_charges');
     }
 };

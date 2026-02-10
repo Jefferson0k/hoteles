@@ -45,6 +45,76 @@ class SubBranch extends Model implements Auditable
         return $this->hasMany(Floor::class)->orderBy('floor_number');
     }
 
+    public function branchRoomTypePrices()
+    {
+        return $this->hasMany(BranchRoomTypePrice::class);
+    }
+
+    public function timeSettings()
+    {
+        return $this->hasOne(SubBranchTimeSetting::class);
+    }
+
+    public function checkinSettings()
+    {
+        return $this->hasOne(SubBranchCheckinSetting::class);
+    }
+
+    public function penaltySettings()
+    {
+        return $this->hasOne(SubBranchPenaltySetting::class);
+    }
+
+    public function cancellationPolicies()
+    {
+        return $this->hasOne(SubBranchCancellationPolicy::class);
+    }
+
+    public function depositSettings()
+    {
+        return $this->hasOne(SubBranchDepositSetting::class);
+    }
+
+    public function taxSettings()
+    {
+        return $this->hasOne(SubBranchTaxSetting::class);
+    }
+
+    public function services()
+    {
+        return $this->hasMany(SubBranchService::class);
+    }
+
+    public function discounts()
+    {
+        return $this->hasMany(SubBranchDiscount::class);
+    }
+
+    public function reservationSettings()
+    {
+        return $this->hasOne(SubBranchReservationSetting::class);
+    }
+
+    public function specialDates()
+    {
+        return $this->hasMany(SubBranchSpecialDate::class);
+    }
+
+    public function additionalCharges()
+    {
+        return $this->hasMany(SubBranchAdditionalCharge::class);
+    }
+
+    public function notificationSettings()
+    {
+        return $this->hasOne(SubBranchNotificationSetting::class);
+    }
+
+    public function bookings()
+    {
+        return $this->hasMany(Booking::class);
+    }
+
     public function rooms()
     {
         return $this->hasManyThrough(

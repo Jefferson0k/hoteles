@@ -11,7 +11,6 @@ return new class extends Migration {
             $table->uuid('product_id');
             $table->uuid('sub_branch_id');
             $table->uuid('movement_detail_id')->nullable();
-            $table->uuid('sale_id')->nullable();
             $table->decimal('precio_total', 15, 2)->default(0.00);
             $table->decimal('SAnteriorCaja', 15, 2)->default(0.00);
             $table->decimal('SAnteriorFraccion', 15, 2)->default(0.00);
@@ -30,8 +29,7 @@ return new class extends Migration {
             $table->foreign('product_id')->references('id')->on('products');
             $table->foreign('sub_branch_id')->references('id')->on('sub_branches');
             $table->foreign('movement_detail_id')->references('id')->on('movement_details')->cascadeOnDelete();
-            $table->foreign('sale_id')->references('id')->on('sales')->nullOnDelete();
-            $table->index(['product_id', 'sub_branch_id', 'movement_detail_id', 'sale_id']);
+            $table->index(['product_id', 'sub_branch_id', 'movement_detail_id']);
         });
     }
 

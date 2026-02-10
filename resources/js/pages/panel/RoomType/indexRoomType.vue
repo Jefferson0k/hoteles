@@ -1,18 +1,18 @@
 <template>
-  <Head title="Tipo de habitaciones" />
-  <AppLayout>
-    <div>
-      <template v-if="isLoading">
-        <Espera />
-      </template>
-      <template v-else>
-        <div class="card">
-          <addRoomType ref="addRef" @refresh="refreshList" />
-          <listRoomType ref="listRef" @edit="handleEdit" />
+    <Head title="Tipo de habitaciones" />
+    <AppLayout>
+        <div>
+            <template v-if="isLoading">
+                <Espera />
+            </template>
+            <template v-else>
+                <div class="card">
+                    <addRoomType ref="addRef" @refresh="refreshList" />
+                    <listRoomType ref="listRef" @edit="handleEdit" />
+                </div>
+            </template>
         </div>
-      </template>
-    </div>
-  </AppLayout>
+    </AppLayout>
 </template>
 
 <script setup lang="ts">
@@ -24,24 +24,24 @@ import listRoomType from './Desarrollo/listRoomType.vue';
 import addRoomType from './Desarrollo/addRoomType.vue';
 
 const isLoading = ref(true);
-const listRef = ref();
-const addRef = ref();
+const listRef = ref<InstanceType<typeof listRoomType>>();
+const addRef = ref<InstanceType<typeof addRoomType>>();
 
 const refreshList = () => {
-  if (listRef.value) {
-    listRef.value.fetchRoomTypes();
-  }
+    if (listRef.value) {
+        listRef.value.fetchRoomTypes();
+    }
 };
 
-const handleEdit = (id) => {
-  if (addRef.value) {
-    addRef.value.openEdit(id);
-  }
+const handleEdit = (id: string) => {
+    if (addRef.value) {
+        addRef.value.openEdit(id);
+    }
 };
 
 onMounted(() => {
-  setTimeout(() => {
-    isLoading.value = false;
-  }, 1000);
+    setTimeout(() => {
+        isLoading.value = false;
+    }, 1000);
 });
 </script>

@@ -10,12 +10,14 @@ use App\Http\Controllers\Api\HorarioController;
 use App\Http\Controllers\Api\PisoController;
 use App\Http\Controllers\Api\ProductoController;
 use App\Http\Controllers\Api\RolesController;
+use App\Http\Controllers\Api\SubBranchConfigurationController;
 use App\Http\Controllers\Api\TipoHabitacionController;
 use App\Http\Controllers\Api\UsoHabitacionController;
 use App\Http\Controllers\Api\UsuariosController;
 use App\Http\Controllers\Panel\BookingConsumptionController;
 use App\Http\Controllers\Panel\BookingController;
 use App\Http\Controllers\Panel\BranchController;
+use App\Http\Controllers\Panel\BranchRoomTypePriceController;
 use App\Http\Controllers\Panel\CashRegisterController;
 use App\Http\Controllers\Panel\CurrencyController;
 use App\Http\Controllers\Panel\CustomerController;
@@ -25,6 +27,7 @@ use App\Http\Controllers\Panel\MovementDetailController;
 use App\Http\Controllers\Panel\MovementsController;
 use App\Http\Controllers\Panel\PagoPersonalController;
 use App\Http\Controllers\Panel\PaymentController;
+use App\Http\Controllers\Panel\PricingRangeController;
 use App\Http\Controllers\Panel\ProviderController;
 use App\Http\Controllers\Panel\RateTypeController;
 use App\Http\Controllers\Panel\ReportController;
@@ -34,6 +37,7 @@ use App\Http\Controllers\Panel\RoomTypeController;
 use App\Http\Controllers\Panel\SubBranchController;
 use App\Http\Controllers\Panel\SystemSettingController;
 use App\Http\Controllers\Web\Branch\BranchWeb;
+use App\Http\Controllers\Web\BranchRoomTypePrice\BranchRoomTypePriceWeb;
 use App\Http\Controllers\Web\Cash\CashWeb;
 use App\Http\Controllers\Web\Cash\cashWebHabitaciones;
 use App\Http\Controllers\Web\Cash\Cloasebox;
@@ -41,6 +45,7 @@ use App\Http\Controllers\Web\CashSession\CashSession;
 use App\Http\Controllers\Web\SubBranch\SubBranchWeb;
 use App\Http\Controllers\Web\Categoria\CategoriaWeb;
 use App\Http\Controllers\Web\Cliente\ClienteWeb;
+use App\Http\Controllers\Web\Configuraciones\Configuraciones;
 use App\Http\Controllers\Web\Floor\FloorWeb;
 use App\Http\Controllers\Web\Horario\HorarioWeb;
 use App\Http\Controllers\Web\DetailsMovements\DetailsMovementsWeb;
@@ -51,7 +56,9 @@ use App\Http\Controllers\Web\Kardex\kardexWeb;
 use App\Http\Controllers\Web\Movements\MovementsWeb;
 use App\Http\Controllers\Web\PagoPersonal\PagoPersonalWeb;
 use App\Http\Controllers\Web\Piso\PisoWeb;
+use App\Http\Controllers\Web\PricingRange\PricingRangeWeb;
 use App\Http\Controllers\Web\Producto\ProductoWeb;
+use App\Http\Controllers\Web\RateType\RateTypeWeb;
 use App\Http\Controllers\Web\Reportes\EgresoWeb;
 use App\Http\Controllers\Web\Reportes\IngresoBrutoWeb;
 use App\Http\Controllers\Web\Reportes\IngresoNetoWeb;
@@ -95,7 +102,6 @@ Route::middleware(['auth', 'verified','cash.register.open'])->group(function () 
 
         Route::get('/pagos/personal', [PagoPersonalWeb::class, 'view'])->name('pagos.view');
 
-        Route::get('/tipos-habitacion', [RoomtypeWeb::class, 'view'])->name('kardex.view');
         Route::get('/inventario', [InventarioWeb::class, 'view'])->name('kardex.view');
         Route::get('/cajas', [CashWeb::class, 'view'])->name('cajas.view');
         Route::get('/habitaciones', [habitacionesWeb::class, 'view'])->name('habitaciones.view');
@@ -132,11 +138,19 @@ Route::middleware(['auth', 'verified','cash.register.open'])->group(function () 
 
         # 🔹 Horarios y configuración del sistema
         Route::get('/horarios', [HorarioWeb::class, 'view'])->name('horarios.index');
-        Route::get('/configuracion', [SystemSettingWeb::class, 'view'])->name('configuracion.index');
 
         Route::get('/cajas/usuarios/{id}', [CashSession::class, 'view'])->name('cajas.usuarios');
         Route::get('/huespedes', [ClienteWeb::class, 'view'])->name('huespedes.view');
         Route::get('/habitacion/{id}/nueva-reserva', [RoomFloorWeb::class, 'view'])->name('nueva.view');
+    });
+
+    Route::prefix('configuracion')->group(function () {
+        Route::get('/parametros', [Configuraciones::class, 'view'])->name('configuraciones.avanzadas.view');
+        Route::get('/tarifas-habitaciones/room-type', [RoomtypeWeb::class, 'view'])->name('tipos.habitacion.view');
+        Route::get('/tarifas-habitaciones/rate-type', [RateTypeWeb::class, 'view'])->name('tipos.tarifa.view');
+        Route::get('/tarifas-habitaciones/branch-room-type-price', [BranchRoomTypePriceWeb::class, 'view'])->name('precios.sucursal.tipo.habitacion.view');
+        Route::get('/tarifas-habitaciones/pricing-range', [PricingRangeWeb::class, 'view'])->name('rangos.precios.view');
+
     });
 
     Route::prefix('consumo-pendiente')->group(function () {
@@ -188,6 +202,45 @@ Route::middleware(['auth', 'verified','cash.register.open'])->group(function () 
         Route::get('/analisis-rendimiento', [ReportController::class, 'analisisRendimientoProductos']);
         Route::get('/bajo-rendimiento', [ReportController::class, 'productosBajoRendimiento']);
 
+    });
+
+
+    Route::prefix('branch-room-type-prices')->group(function () {
+        Route::get('/', [BranchRoomTypePriceController::class, 'index']);
+        Route::post('/', [BranchRoomTypePriceController::class, 'store']);
+        
+        // Nuevos endpoints útiles
+        Route::get('/pricing-options', [BranchRoomTypePriceController::class, 'getPricingOptions']);
+        Route::post('/calculate-price', [BranchRoomTypePriceController::class, 'calculatePrice']);
+        
+        Route::get('/{branch_room_type_price}', [BranchRoomTypePriceController::class, 'show']);
+        Route::put('/{branch_room_type_price}', [BranchRoomTypePriceController::class, 'update']);
+        Route::delete('/{branch_room_type_price}', [BranchRoomTypePriceController::class, 'destroy']);
+    });
+
+    Route::prefix('pricing-ranges')->group(function () {
+        Route::get('/', [PricingRangeController::class, 'index']);
+        Route::post('/', [PricingRangeController::class, 'store']);
+        Route::get('/price-for-minutes', [PricingRangeController::class, 'getPriceForMinutes']);
+        Route::get('/{pricing_range}', [PricingRangeController::class, 'show']);
+        Route::put('/{pricing_range}', [PricingRangeController::class, 'update']);
+        Route::delete('/{pricing_range}', [PricingRangeController::class, 'destroy']);
+    });
+
+    Route::prefix('sub-branches/{subBranchId}/configuration')->group(function () {
+        Route::get('/', [SubBranchConfigurationController::class, 'show']);
+        Route::post('/', [SubBranchConfigurationController::class, 'store']);
+        
+        Route::put('/time', [SubBranchConfigurationController::class, 'updateTimeSettings']);
+        Route::put('/checkin', [SubBranchConfigurationController::class, 'updateCheckinSettings']);
+        Route::put('/penalty', [SubBranchConfigurationController::class, 'updatePenaltySettings']);
+        Route::put('/cancellation', [SubBranchConfigurationController::class, 'updateCancellationPolicy']);
+        Route::put('/deposit', [SubBranchConfigurationController::class, 'updateDepositSettings']);
+        Route::put('/tax', [SubBranchConfigurationController::class, 'updateTaxSettings']);
+        Route::put('/reservation', [SubBranchConfigurationController::class, 'updateReservationSettings']);
+        Route::put('/notification', [SubBranchConfigurationController::class, 'updateNotificationSettings']);
+        
+        Route::post('/clone', [SubBranchConfigurationController::class, 'cloneConfiguration']);
     });
     
     Route::prefix('cash-register-sessions')->group(function () {

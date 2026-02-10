@@ -38,6 +38,10 @@ class Customer extends Model
     {
         return $this->belongsTo(User::class, 'created_by');
     }
+    public function bookings()
+    {
+        return $this->hasMany(Booking::class, 'customers_id');
+    }
 
     public function updatedBy()
     {
@@ -58,5 +62,9 @@ class Customer extends Model
     public function scopeByDocumentNumber($query, $document)
     {
         return $query->where('document_number', $document);
+    }
+    public function getFullNameAttribute()
+    {
+        return "{$this->first_name} {$this->last_name}";
     }
 }

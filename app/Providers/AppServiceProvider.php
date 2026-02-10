@@ -8,9 +8,12 @@ use Illuminate\Support\ServiceProvider;
 use App\Models\Booking;
 use App\Models\Payment;
 use App\Models\Inventory;
+use App\Models\SubBranch;
 use App\Observers\BookingObserver;
 use App\Observers\PaymentObserver;
 use App\Observers\InventoryObserver;
+use App\Observers\SubBranchObserver;
+
 class AppServiceProvider extends ServiceProvider{
     public function register(): void{
 
@@ -23,5 +26,6 @@ class AppServiceProvider extends ServiceProvider{
         Booking::observe(BookingObserver::class);
         Payment::observe(PaymentObserver::class);
         Inventory::observe(InventoryObserver::class);
+        SubBranch::observe(SubBranchObserver::class);
     }
 }

@@ -15,7 +15,7 @@ class DatabaseSeeder extends Seeder{
             ProviderSeeder::class,
             CurrencySeeder::class,
             PaymentMethodSeeder::class,
-            RateTypeSeeder::class,
+            #RateTypeSeeder::class,
         ]);
     }
 }

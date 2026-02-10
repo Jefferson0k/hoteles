@@ -1,8 +1,9 @@
 <?php
+
 namespace App\Http\Requests\RoomType;
 
+use App\Models\RoomType;
 use Illuminate\Foundation\Http\FormRequest;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\Rule;
 
 class UpdateRoomTypeRequest extends FormRequest{
@@ -11,32 +12,67 @@ class UpdateRoomTypeRequest extends FormRequest{
         $roomType = $this->route('roomType');
         return $roomType && $this->user()->can('update', $roomType);
     }
-    public function rules(): array{
-        $roomType = $this->route('roomType');
+
+    public function rules(): array
+    {
+        // Obtener la instancia del modelo desde la ruta
+        $roomType = $this->route('roomType') ?? $this->route('room_type');
+        
+        // Si es una instancia del modelo, obtener su ID
+        $roomTypeId = $roomType instanceof RoomType ? $roomType->id : $roomType;
+        
         return [
             'name' => [
                 'required',
                 'string',
-                'max:100',
-                Rule::unique('room_types', 'name')->ignore($roomType),
+                'max:255',
+                Rule::unique('room_types', 'name')
+                    ->ignore($roomTypeId)
+                    ->whereNull('deleted_at')
             ],
-            'description' => 'nullable|string|max:500',
+            'code' => [
+                'nullable',
+                'string',
+                'max:255',
+                Rule::unique('room_types', 'code')
+                    ->ignore($roomTypeId)
+                    ->whereNull('deleted_at')
+            ],
+            'description' => 'nullable|string',
             'capacity' => 'required|integer|min:1',
-            'base_price_per_hour' => 'required|numeric|min:0',
-            'base_price_per_day' => 'required|numeric|min:0',
-            'base_price_per_night' => 'required|numeric|min:0',
-            'is_active' => 'sometimes|boolean',
+            'max_capacity' => 'nullable|integer|min:1|gte:capacity',
+            'category' => [
+                'nullable',
+                'string',
+                Rule::in(RoomType::getCategories())
+            ],
+            'is_active' => 'nullable|boolean',
         ];
     }
-    public function messages(): array{
+
+    public function messages(): array
+    {
         return [
             'name.required' => 'El nombre del tipo de habitación es obligatorio.',
             'name.unique' => 'Ya existe un tipo de habitación con este nombre.',
+            'code.unique' => 'El código ya está en uso.',
             'capacity.required' => 'La capacidad es obligatoria.',
-            'capacity.integer' => 'La capacidad debe ser un número entero.',
-            'base_price_per_hour.required' => 'Debe indicar un precio base por hora.',
-            'base_price_per_day.required' => 'Debe indicar un precio base por día.',
-            'base_price_per_night.required' => 'Debe indicar un precio base por noche.',
+            'capacity.min' => 'La capacidad debe ser al menos 1.',
+            'max_capacity.gte' => 'La capacidad máxima debe ser mayor o igual a la capacidad estándar.',
+            'category.in' => 'La categoría seleccionada no es válida.',
+        ];
+    }
+
+    public function attributes(): array
+    {
+        return [
+            'name' => 'nombre',
+            'code' => 'código',
+            'description' => 'descripción',
+            'capacity' => 'capacidad',
+            'max_capacity' => 'capacidad máxima',
+            'category' => 'categoría',
+            'is_active' => 'activo',
         ];
     }
 }
