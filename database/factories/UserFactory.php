@@ -21,9 +21,10 @@ class UserFactory extends Factory
     {
         return [
             'name'              => fake()->name(),
+            'apellidos'         => fake()->lastName() . ' ' . fake()->lastName(), // 👈 AGREGAR
             'email'             => fake()->unique()->safeEmail(),
             'username'          => fake()->unique()->userName(),
-            'dni'               => fake()->unique()->numerify('########'), // 👈 AGREGADO
+            'dni'               => fake()->unique()->numerify('########'),
             'status'            => 1,
             'email_verified_at' => now(),
             'password'          => static::$password ??= Hash::make('password'),
