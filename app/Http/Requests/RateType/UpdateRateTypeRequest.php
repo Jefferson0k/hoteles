@@ -11,11 +11,8 @@ class UpdateRateTypeRequest extends FormRequest
     {
         return true;
     }
-
-    public function rules(): array
-    {
-        $rateTypeId = $this->route('rate_type');
-
+    public function rules(): array{
+        $rateTypeId = $this->route('rateType')->id;
         return [
             'name' => [
                 'required',
@@ -23,7 +20,7 @@ class UpdateRateTypeRequest extends FormRequest
                 'max:255',
                 Rule::unique('rate_types', 'name')
                     ->ignore($rateTypeId)
-                    ->whereNull('deleted_at')
+                    ->whereNull('deleted_at'),
             ],
             'code' => [
                 'required',
@@ -32,7 +29,7 @@ class UpdateRateTypeRequest extends FormRequest
                 'alpha_dash',
                 Rule::unique('rate_types', 'code')
                     ->ignore($rateTypeId)
-                    ->whereNull('deleted_at')
+                    ->whereNull('deleted_at'),
             ],
             'description' => 'nullable|string',
             'is_active' => 'nullable|boolean',

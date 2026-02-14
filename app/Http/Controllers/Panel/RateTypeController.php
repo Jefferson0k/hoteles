@@ -15,6 +15,11 @@ class RateTypeController extends Controller{
         $rateTypes = RateType::all();
         return RateTypeResource::collection($rateTypes);
     }
+    public function indexOpciones()
+    {
+        $rateTypes = RateType::where('is_active', 1)->get();
+        return RateTypeResource::collection($rateTypes);
+    }
     public function store(StoreRateTypeRequest $request){
         try {
             DB::beginTransaction();

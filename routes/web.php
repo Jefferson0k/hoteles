@@ -289,9 +289,16 @@ Route::middleware(['auth', 'verified','cash.register.open'])->group(function () 
         Route::patch('/{pagoPersonal}/anular', [PagoPersonalController::class, 'cancel'])->name('cancel');
         Route::get('/exportar/reporte', [PagoPersonalController::class, 'export'])->name('export');
     });
-
-    Route::get('rate-types', [RateTypeController::class, 'index']);
     
+    Route::prefix('rate-types')->group(function () {
+        Route::get('/', [RateTypeController::class, 'index']);
+        Route::get('/opcones', [RateTypeController::class, 'indexOpciones']);
+        Route::post('/', [RateTypeController::class, 'store']);
+        Route::get('/{rateType}', [RateTypeController::class, 'show']);
+        Route::put('/{rateType}', [RateTypeController::class, 'update']);
+        Route::delete('/{rateType}', [RateTypeController::class, 'destroy']);
+    });
+
     Route::get('currencies', [CurrencyController::class, 'index']);
 
     Route::prefix('detalles')->group(function () {
@@ -376,6 +383,7 @@ Route::middleware(['auth', 'verified','cash.register.open'])->group(function () 
     #ROOM TYPE => BACKEND
     Route::prefix('room-types')->group(function () {
         Route::get('/', [RoomTypeController::class, 'index'])->name('room.index');
+        Route::get('/opciones', [RoomTypeController::class, 'indexOpciones'])->name('room.index-opciones');
         Route::post('/', [RoomTypeController::class, 'store'])->name('room.store');
         Route::get('/{roomType}', [RoomTypeController::class, 'show'])->name('room.show');
         Route::put('/{roomType}', [RoomTypeController::class, 'update'])->name('room.update');

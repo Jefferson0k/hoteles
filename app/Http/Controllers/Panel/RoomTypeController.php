@@ -31,6 +31,19 @@ class RoomTypeController extends Controller{
             ->thenReturn();
         return RoomTypeResource::collection($query->paginate($perPage));
     }
+    public function indexOpciones(Request $request){
+        Gate::authorize('viewAny', RoomType::class);
+        $perPage = $request->input('per_page', 15);
+        $query = app(Pipeline::class)
+            ->send(RoomType::query()->active())
+            ->through([
+                new FilterByName($request->input('search')),
+                new FilterByState($request->input('state')),
+            ])
+            ->thenReturn();
+        return RoomTypeResource::collection($query->paginate($perPage));
+    }
+
     public function store(StoreRoomTypeRequest $request){
         try {
             DB::beginTransaction();

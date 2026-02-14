@@ -7,6 +7,6 @@ use Inertia\Inertia;
 use Inertia\Response;
 class BranchRoomTypePriceWeb extends Controller{
     public function view(): Response{
-        return Inertia::render('panel/');
+        return Inertia::render('panel/BranchRoomTypePrice/indexBranchRoomTypePrice');
     }
 }
